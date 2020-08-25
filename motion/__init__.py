@@ -1,6 +1,7 @@
-from .datasets import Locomotion, Trinity
+from .datasets import Locomotion, Trinity, UDH
 
 Datasets = {
     "locomotion": Locomotion,
-    "trinity": Trinity
+    "trinity": Trinity,
+    "udh": UDH
 }
