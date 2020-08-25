@@ -2,11 +2,12 @@ name: moglow
 channels:
   - conda-forge
   - defaults
+  - pytorch
 dependencies:
   - matplotlib
   - numpy
   - pytorch
-  - cudatoolkit=10.2
+  - cudatoolkit=10.1
   - scikit-learn
   - tensorboardx
   - tqdm
@@ -14,4 +15,3 @@ dependencies:
   - pandas
   - joblib
   - librosa
-
