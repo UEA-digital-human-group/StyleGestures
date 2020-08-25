@@ -70,9 +70,10 @@ class Trainer(object):
             self.test_batch[k] = self.test_batch[k].to(self.data_device)
 
         # validation batch
+        self.val_batch_size = hparams.Val.batch_size
         self.val_data_loader = DataLoader(data.get_validation_dataset(),
-                                      batch_size=self.batch_size,
-                                      num_workers=8,
+                                      batch_size=self.val_batch_size,
+                                      num_workers=1,
                                       shuffle=False,
                                       drop_last=True)
             
