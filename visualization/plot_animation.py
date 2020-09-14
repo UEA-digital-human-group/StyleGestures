@@ -10,6 +10,7 @@ from matplotlib.animation import ArtistAnimation
 from scipy.spatial.transform import Rotation as R
 
 
+
 def plot_animation(clip, parents, filename=None, fps=30, axis_scale=50, elev=45, azim=45):
         
     rot = R.from_quat([0,0,0,1])
@@ -79,3 +80,4 @@ def plot_animation(clip, parents, filename=None, fps=30, axis_scale=50, elev=45,
         plt.save()
     except AttributeError as e:
         pass
+

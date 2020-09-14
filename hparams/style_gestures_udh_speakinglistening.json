@@ -1,7 +1,7 @@
 {
     "Dir": {
-      "data_root": "/data1/w0457094/data/processed_stylegestures/",
-      "log_root": "/data1/w0457094/results/style_gestures"
+      "data_root": "/data1/w0457094/data/processed_stylegestures/speakinglisteningds",
+      "log_root": "/data1/w0457094/results/style_gestures/speakinglisteningds"
     },
     "Glow": {
       "hidden_channels": 800,
@@ -45,6 +45,7 @@
     },
     "Train": {
       "batch_size": 40,
+      "val_batch_size": 40,
       "num_batches": 160000,
       "num_epochs": 400,
       "max_grad_clip": 5,

@@ -10,7 +10,7 @@ import datetime
 from docopt import docopt
 from torch.utils.data import DataLoader, Dataset
 from glow.builder import build
-from glow.trainer import Trainer
+from glow.trainer_udh import Trainer
 from glow.config import JsonConfig
 
 if __name__ == "__main__":

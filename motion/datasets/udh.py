@@ -6,6 +6,13 @@ from .motion_data import MotionDataset, TestDataset
 from torch.utils.data import Dataset
 from sklearn.preprocessing import StandardScaler
 
+from udhskeleton.render import plot_upper
+from udhskeleton.udhskeleton import UDHSkeleton
+
+from os import mkdir
+from os.path import exists
+from torch import tensor, float32
+
 module_path = os.path.abspath(os.path.join('data_processing'))
 if module_path not in sys.path:
     sys.path.append(module_path)
@@ -54,10 +61,11 @@ class UDH():
                        
         # make sure the test data is at least one batch size
         self.n_test = test_input.shape[0]
+
         n_tiles = 1+hparams.Train.batch_size//self.n_test
         test_input = np.tile(test_input.copy(), (n_tiles,1,1))
 
-        # Standartize
+        # Standardize
         train_input, input_scaler = fit_and_standardize(train_input)
         train_output, output_scaler = fit_and_standardize(train_output)
         val_input = standardize(val_input, input_scaler)
@@ -69,14 +77,29 @@ class UDH():
         self.train_dataset = MotionDataset(train_input, train_output, hparams.Data.seqlen, hparams.Data.n_lookahead, hparams.Data.dropout)    
         self.validation_dataset = MotionDataset(val_input, val_output, hparams.Data.seqlen, hparams.Data.n_lookahead, hparams.Data.dropout)    
         self.test_dataset = TestDataset(test_input, test_output)
+
+        print('len(self.validation_dataset)', len(self.validation_dataset))
         
         # Store scaler and fps
         self.scaler = output_scaler
         self.fps = hparams.Data.framerate
 
     def save_animation(self, control_data, motion_data, filename):
-        anim_clips = inv_standardize(motion_data[:(self.n_test),:,:], self.scaler)
-        np.savez(filename + ".npz", clips=anim_clips)  
+        batch_joints = inv_standardize(motion_data[:(self.n_test),:,:], self.scaler)
+        np.savez(filename + ".npz", clips=batch_joints)  
+
+        if exists(filename) is not True:
+            mkdir(filename)
+
+        skeleton = UDHSkeleton()
+        for i in range(len(batch_joints)):
+            if exists('{:s}/{:02d}'.format(filename, i)) is not True:
+                mkdir('{:s}/{:02d}'.format(filename, i))
+           
+            for j in range(len(batch_joints[i])):
+                xyz = skeleton(tensor(batch_joints[i][j], dtype=float32)).detach().reshape((-1,3))
+                plot_upper(xyz[:,0], xyz[:,1], xyz[:,2], fname='{:s}/{:02d}/{:04d}.jpg'.format(filename, i, j))
+
     #     self.write_bvh(anim_clips, filename)
         
     # def write_bvh(self, anim_clips, filename):

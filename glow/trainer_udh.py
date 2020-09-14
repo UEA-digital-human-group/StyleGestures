@@ -52,16 +52,17 @@ class Trainer(object):
                                       shuffle=True,
                                       drop_last=True)
                                       
-        self.n_epoches = (hparams.Train.num_batches+len(self.data_loader)-1)
-        self.n_epoches = self.n_epoches // len(self.data_loader)
+        self.n_epoches = hparams.Train.num_epochs
         self.global_step = 0
         
         self.seqlen = hparams.Data.seqlen
         self.n_lookahead = hparams.Data.n_lookahead
         
+        self.val_batch_size = hparams.Train.val_batch_size
+
         # test batch
         self.test_data_loader = DataLoader(data.get_test_dataset(),
-                                      batch_size=self.batch_size,
+                                      batch_size=self.val_batch_size,
                                        num_workers=0,
                                       shuffle=False,
                                       drop_last=True)
@@ -71,7 +72,7 @@ class Trainer(object):
 
         # validation batch
         self.val_data_loader = DataLoader(data.get_validation_dataset(),
-                                      batch_size=self.batch_size,
+                                      batch_size=self.val_batch_size,
                                       num_workers=0,
                                       shuffle=False,
                                       drop_last=True)
@@ -150,7 +151,7 @@ class Trainer(object):
 
         # begin to train
         for epoch in range(self.n_epoches):
-            print("epoch", epoch)
+            print("epoch", epoch, "global step", self.global_step)
             progress = tqdm(self.data_loader)
             for i_batch, batch in enumerate(progress):
 
@@ -173,6 +174,15 @@ class Trainer(object):
                 x = batch["x"]
                                 
                 cond = batch["cond"]
+
+                # check for nans
+                if torch.isnan(x).any():
+                    print('x has nans')
+                    exit(0)
+                if torch.isnan(cond).any():
+                    print('cond has nans')
+                    print(cond[0])
+                    exit(0)
 
                 # init LSTM hidden
                 if hasattr(self.graph, "module"):
@@ -226,6 +236,7 @@ class Trainer(object):
                 if self.global_step % self.validation_log_gaps == 0:
                     # set to eval state
                     self.graph.eval()
+
                                         
                     # Validation forward phase
                     loss_val = 0

@@ -161,16 +161,16 @@ if __name__ == "__main__":
      
     # Hardcoded preprocessing params and file structure. 
     # Modify these if you want the data in some different format
-    train_window_secs = 6
-    test_window_secs = 20
+    train_window_secs = 4
+    test_window_secs = 8
     window_overlap = 0.5
     fps = 25
 
     # data_root = '../data/trinity/source'
     # bvhpath = '/data1/w0457094/data/udhopenpose3D/speakingsegments_upper_joint_imputed/sp1/'
-    audiopath = '/data1/w0457094/data/udhaudio/25kHz/speakingsegments/sp1/'
-    held_out = ['426G1404_03_010', '426G1409_03_000', '426G1410_01_002','426G1404_03_025','426G1405_01_040','426G1411_01_013', '426G1404_03_002','426G1405_01_011','426G1407_01_020','426G1404_03_000']
-    processed_dir = '/data1/w0457094/data/processed_stylegestures'    
+    audiopath = '/data1/w0457094/data/udhaudio/25kHz/listeningsegments/sp1/'
+    held_out = ['426G1405_01_018','426G1406_01_004','426G1408_02_001']
+    processed_dir = '/data1/w0457094/data/processed_stylegestures/listening'    
     
     files = []
     
@@ -191,7 +191,7 @@ if __name__ == "__main__":
         os.makedirs(processed_dir)
         
     path = os.path.join(processed_dir, f'features_{fps}fps')
-    motion_path = '/data1/w0457094/data/udhopenpose3D/speakingsegments_upper_joint_imputed/sp1/'
+    motion_path = '/data1/w0457094/data/udhopenpose3D/listeningsegments_upper_joint_imputed/sp1/'
     speech_path = os.path.join(path, f'{speech_feat}')
     # hand_path = os.path.join(path, 'hand_pos')
     # vel_path = os.path.join(path, 'MG-V')
@@ -251,11 +251,13 @@ if __name__ == "__main__":
     val_test_split = 20*test_window_secs*fps # 10 
     
     train_motion, train_ctrl, train_fnames,train_clipnos = import_and_slice(train_files, motion_path, speech_path, None, slice_win_train, window_overlap, mirror=False)
-    val_motion, val_ctrl, val_fnames, val_clipnos = import_and_slice(held_out, motion_path, speech_path, None, slice_win_train, window_overlap, mirror=False, start=0, end=val_test_split)
-
+    # val_motion, val_ctrl, val_fnames, val_clipnos = import_and_slice(held_out, motion_path, speech_path, None, slice_win_train, window_overlap, mirror=False, start=0, end=val_test_split)
+    val_motion, val_ctrl, val_fnames, val_clipnos = import_and_slice(held_out, motion_path, speech_path, None, slice_win_train, window_overlap, mirror=False, start=0)
     # the following sets are cut into longer clips without overlap. These are used for subjective evaluations during tuning (dev) and evaluation (test)
-    dev_motion, dev_ctrl, dev_fnames,dev_clipnos = import_and_slice(held_out, motion_path, speech_path, None, slice_win_test, 0, mirror=False, start=0, end=val_test_split)
-    test_motion, test_ctrl, test_fnames,test_clipnos = import_and_slice(held_out, motion_path, speech_path, None, slice_win_test, 0, mirror=False, start=val_test_split)
+    # dev_motion, dev_ctrl, dev_fnames,dev_clipnos = import_and_slice(held_out, motion_path, speech_path, None, slice_win_test, 0, mirror=False, start=0, end=val_test_split)
+    dev_motion, dev_ctrl, dev_fnames,dev_clipnos = import_and_slice(held_out, motion_path, speech_path, None, slice_win_test, 0, mirror=False, start=0)
+    # test_motion, test_ctrl, test_fnames,test_clipnos = import_and_slice(held_out, motion_path, speech_path, None, slice_win_test, 0, mirror=False, start=val_test_split)
+    test_motion, test_ctrl, test_fnames,test_clipnos = import_and_slice(held_out, motion_path, speech_path, None, slice_win_test, 0, mirror=False, start=0)
     
     # # if style controlled, set the control values to 15%, 50% and 85% quantiles
     # if style_path is not None:

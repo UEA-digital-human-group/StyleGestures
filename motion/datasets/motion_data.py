@@ -38,6 +38,7 @@ class MotionDataset(Dataset):
         # joint positions for the current frame
         x_start = seqlen
         new_x = self.concat_sequence(1, joint_data[:,x_start:n_frames-n_lookahead,:])
+
         self.x = new_x
         self.cond = new_cond
         
