@@ -1,7 +1,7 @@
 {
     "Dir": {
-      "data_root": "/data1/w0457094/data/processed_stylegestures/speakinglisteningds",
-      "log_root": "/data1/w0457094/results/style_gestures/speakinglisteningds"
+      "data_root": "/data1/w0457094/data/processed_stylegestures/speakinglistening",
+      "log_root": "/data1/w0457094/results/style_gestures/speakinglistening"
     },
     "Glow": {
       "hidden_channels": 800,

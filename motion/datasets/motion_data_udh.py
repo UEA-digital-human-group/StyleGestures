@@ -1,7 +1,7 @@
 import numpy as np
 from torch.utils.data import Dataset
 
-class MotionDataset(Dataset):
+class MotionDatasetUDH(Dataset):
     """
     Motion dataset. 
     Prepares conditioning information (previous poses + control signal) and the corresponding next poses"""
@@ -18,40 +18,67 @@ class MotionDataset(Dataset):
         """
         self.seqlen = seqlen
         self.dropout=dropout
-        seqlen_control = seqlen + n_lookahead + 1
+        self.n_lookahead = n_lookahead
+        self.joint_data = joint_data
+        self.control_data = control_data
+
+        self.seqlen_control = seqlen + n_lookahead + 1
         
         #For LSTM network
-        n_frames = joint_data.shape[1]
+        self.n_frames = joint_data.shape[1]
                     
-        # Joint positions for n previous frames
-        autoreg = self.concat_sequence(self.seqlen, joint_data[:,:n_frames-n_lookahead-1,:])
+        # # Joint positions for n previous frames
+        # autoreg = self.concat_sequence(self.seqlen, joint_data[:,:n_frames-n_lookahead-1,:])
                     
-        print("autoreg:" + str(autoreg.shape))        
+        # print("autoreg:" + str(autoreg.shape))        
 
-        # Control for n previous frames + current frame
-        control = self.concat_sequence(seqlen_control, control_data)
+        # # Control for n previous frames + current frame
+        # control = self.concat_sequence(seqlen_control, control_data)
 
-        # conditioning
-        print("control:" + str(control.shape))        
-        new_cond = np.concatenate((autoreg,control),axis=2)
+        # # conditioning
+        # print("control:" + str(control.shape))        
+        # new_cond = np.concatenate((autoreg,control),axis=2)
 
-        # joint positions for the current frame
-        x_start = seqlen
-        new_x = self.concat_sequence(1, joint_data[:,x_start:n_frames-n_lookahead,:])
+        # # joint positions for the current frame
+        # x_start = seqlen
+        # new_x = self.concat_sequence(1, joint_data[:,x_start:n_frames-n_lookahead,:])
 
-        self.x = new_x
-        self.cond = new_cond
+        # self.x = new_x
+        # self.cond = new_cond
         
-        #TODO TEMP swap C and T axis to match existing implementation
-        self.x = np.swapaxes(self.x, 1, 2)
-        self.cond = np.swapaxes(self.cond, 1, 2)
+        # #TODO TEMP swap C and T axis to match existing implementation
+        # self.x = np.swapaxes(self.x, 1, 2)
+        # self.cond = np.swapaxes(self.cond, 1, 2)
         
-        print("self.x:" + str(self.x.shape))        
-        print("self.cond:" + str(self.cond.shape))
+        # print("self.x:" + str(self.x.shape))        
+        # print("self.cond:" + str(self.cond.shape))
         
     def n_channels(self):
-        return self.x.shape[1], self.cond.shape[1]
+        x, cond = self.process_frame(0)
+        return x.shape[1], cond.shape[1]
+
+    def process_frame(self, idx):
+        # Joint positions for n previous frames
+        autoreg = self.concat_sequence(self.seqlen, self.joint_data[[idx],:self.n_frames-self.n_lookahead-1,:])
+                    
+        # Control for n previous frames + current frame
+        control = self.concat_sequence(self.seqlen_control, self.control_data[[idx],:,:])
+        # conditioning
+        new_cond = np.concatenate((autoreg,control),axis=2)
 		
+        # joint positions for the current frame
+        x_start = self.seqlen
+        new_x = self.concat_sequence(1, self.joint_data[[idx],x_start:self.n_frames-self.n_lookahead,:])
+
+        # self.x = new_x
+        # self.cond = new_cond
+        
+        #TODO TEMP swap C and T axis to match existing implementation
+        new_x = np.swapaxes(new_x, 1, 2)
+        new_cond = np.swapaxes(new_cond, 1, 2)
+
+        return new_x, new_cond
+
     def concat_sequence(self, seqlen, data):
         """ 
         Concatenates a sequence of features to one.
@@ -70,13 +97,13 @@ class MotionDataset(Dataset):
         
         #print ("cc: " + str(cc.shape))
 
-        #reshape all timesteps and features into one dimention per sample
+        #reshape all timesteps and features into one dimension per sample
         dd = cc.reshape((nn, L, seqlen*n_feats))
         #print ("dd: " + str(dd.shape))
         return dd
                                                                                                                                
     def __len__(self):
-        return self.x.shape[0]
+        return self.joint_data.shape[0]
 
     def __getitem__(self, idx):
         """
@@ -85,9 +112,13 @@ class MotionDataset(Dataset):
         The control is not masked
         """
         
+        x, cond = self.process_frame(idx)
+        x = x[0]
+        cond = cond[0]
+
         if self.dropout>0.:
-            n_feats, tt = self.x[idx,:,:].shape
-            cond_masked = self.cond[idx,:,:].copy()
+            n_feats, tt = x.shape
+            cond_masked = cond.copy()
             
             keep_pose = np.random.rand(self.seqlen, tt)<(1-self.dropout)
 
@@ -100,9 +131,9 @@ class MotionDataset(Dataset):
             #print(mask)
 
             cond_masked = cond_masked*mask
-            sample = {'x': self.x[idx,:,:], 'cond': cond_masked}
+            sample = {'x': x, 'cond': cond_masked}
         else:
-            sample = {'x': self.x[idx,:,:], 'cond': self.cond[idx,:,:]}
+            sample = {'x': x, 'cond': cond}
             
         return sample
 

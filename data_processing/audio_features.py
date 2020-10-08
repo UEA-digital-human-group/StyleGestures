@@ -10,7 +10,8 @@ def extract_melspec(audio_dir, files, destpath, fps):
 
     for f in files:
         file = os.path.join(audio_dir, f + '.wav')
-        outfile = destpath + '/' + f + '.npy'
+        basename = os.path.split(f)[-1]
+        outfile = destpath + '/' + basename + '.npy'
         
         print('{}\t->\t{}'.format(file,outfile))
         fs,X = wav.read(file)

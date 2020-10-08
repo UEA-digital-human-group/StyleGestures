@@ -81,49 +81,48 @@ def align(data1, data2):
     else:
         return np.concatenate((data1[:nframes2,:], data2), axis=1)
         
-def import_data(file, motion_path, speech_data, style_path, ds_path, mirror=False, start=0, end=None):
+def import_data(filename, motion_path, speech_data, style_path, id_path, ds_path, mirror=False, start=0, end=None):
     """Loads a file and concatenate all features to one [time, features] matrix. 
      NOTE: All sources will be truncated to the shortest length, i.e. we assume they
      are time synchronized and has the same start time."""
     
-    suffix=""
+    motion_file = filename 
     if mirror:
         suffix="_mirrored"
+        identity, basename = os.path.split(filename)
+        identity = identity + suffix
+        motion_file = os.path.join(identity, basename)
         
-    motion_data = np.load(os.path.join(motion_path, file + '.npy')).astype(np.float32)        
+    motion_data = np.load(os.path.join(motion_path, motion_file + '.npy')).astype(np.float32)        
     n_motion_feats = motion_data.shape[1]
 
-    if np.isnan(motion_data).any():
-        print('motion data has nans ', os.path.join(motion_path, file + '.npy'))
-        exit(0)
+    basename = os.path.split(filename)[-1]
+    speech_data = np.load(os.path.join(speech_path, basename + '.npy')).astype(np.float32)
+    n_speech_feats = speech_data.shape[1]
 
-    speech_data = np.load(os.path.join(speech_path, file + '.npy')).astype(np.float32)
-
-    if np.isnan(speech_data).any():
-        print('speech_data has nans ', os.path.join(speech_path, file + '.npy'))
-        exit(0)
+    control_data = speech_data
     
     if style_path is not None:
-        style_data = np.load(os.path.join(style_path, file + suffix + '.npy')).astype(np.float32)
-        if np.isnan(style_data).any():
-            print('style_data has nans ', os.path.join(style_path, file + '.npy'))
-            exit(0)
-        control_data = align(speech_data,style_data)
-        if np.isnan(control_data).any():
-            print('control_data (1) has nans')
-            exit(0)
+        style_data = np.load(os.path.join(style_path, filename + '.npy')).astype(np.float32)
+        n_style_feats = style_data.shape[1]
+        control_data = align(control_data,style_data)
     else:
-        control_data = speech_data
+        n_style_feats = 0
+
+    if id_path is not None:
+        id_data = np.load(os.path.join(id_path, filename + '.npy')).astype(np.float32)
+        n_id_feats = id_data.shape[1]
+        control_data = align(control_data,id_data)
+    else:
+        n_id_feats = 0
 
     if ds_path is not None:
-        ds_data = np.load(os.path.join(ds_path, file + suffix + '.npy')).astype(np.float32)
-        if np.isnan(ds_data).any():
-            print('ds_data has nans', os.path.join(ds_path, file + suffix + '.npy'))
-            exit(0)
+        ds_data = np.load(os.path.join(ds_path, filename + '.npy')).astype(np.float32)
+        n_ds_feats = ds_data.shape[1]
         control_data = align(control_data,ds_data)
-        if np.isnan(control_data).any():
-            print('control_data (2) has nans')
-            exit(0)
+    else:
+        n_ds_feats = 0
+
     concat_data = align(motion_data, control_data)
     
     if np.isnan(concat_data).any():
@@ -132,24 +131,24 @@ def import_data(file, motion_path, speech_data, style_path, ds_path, mirror=Fals
     if not end:
         end = concat_data.shape[0]
         
-    return concat_data[start:end,:], n_motion_feats
+    return concat_data[start:end,:], n_motion_feats, n_speech_feats, n_style_feats, n_id_feats, n_ds_feats
 
-def import_and_slice(files, motion_path, speech_data, style_path, ds_path, slice_window, slice_overlap, mirror=False, start=0, end=None):
-    """Imports all features and slices them to samples with equal lenth time [samples, timesteps, features]."""
+def import_and_slice(files, motion_path, speech_data, style_path, id_path, ds_path, slice_window, slice_overlap, mirror=False, start=0, end=None):
+    """Imports all features and slices them to samples with equal length time [samples, timesteps, features]."""
                     
     fi=0
     for file in files:
         print(file)
         
         # slice dataset
-        concat_data, n_motion_feats = import_data(file, motion_path, speech_data, style_path, ds_path, False, start, end)        
+        concat_data, n_motion_feats, n_speech_feats, n_style_feats, n_id_feats, n_ds_feats = import_data(file, motion_path, speech_data, style_path, id_path, ds_path, False, start, end)        
         sliced = slice_data(concat_data, slice_window, slice_overlap)
 
         filenames = [file] * len(sliced)
         clipnos = range(len(sliced))
 
         if mirror:
-            concat_mirr, nmf = import_data(file, motion_path, speech_data, style_path, ds_path, True, start, end)
+            concat_mirr, nmf, n_speech_feats, n_style_feats, n_id_feats, n_ds_feats = import_data(file, motion_path, speech_data, style_path,  id_path, ds_path, True, start, end)
             sliced_mirr = slice_data(concat_mirr, slice_window, slice_overlap)
             
             # append to the sliced dataset
@@ -165,7 +164,7 @@ def import_and_slice(files, motion_path, speech_data, style_path, ds_path, slice
             out_clipnos = np.concatenate((out_clipnos, clipnos), axis=0)
         fi=fi+1
 
-    return out_data[:,:,:n_motion_feats], out_data[:,:,n_motion_feats:], out_filenames,out_clipnos 
+    return out_data[:,:,:n_motion_feats], out_data[:,:,n_motion_feats:], out_filenames, out_clipnos, n_speech_feats, n_style_feats, n_id_feats, n_ds_feats
     
 if __name__ == "__main__":
     '''
@@ -192,9 +191,10 @@ if __name__ == "__main__":
 
     # data_root = '../data/trinity/source'
     # bvhpath = '/data1/w0457094/data/udhopenpose3D/speakingsegments_upper_joint_imputed/sp1/'
-    audiopath = '/data1/w0457094/data/udhaudio/25kHz/speakinglisteningsegments/sp1/'
-    held_out = ['426G1404_03_000', '426G1407_01_000', '426G1408_02_000']
-    processed_dir = '/data1/w0457094/data/processed_stylegestures/speakinglisteningds'    
+    audiopath = '/data1/w0457094/data/udhaudio/25kHz/speakinglisteningsegments/'
+    speaker_ids = ['sp1', 'sp2', 'sp3']
+    held_out = ['sp1/426G1404_03_000', 'sp1/426G1407_01_000', 'sp1/426G1408_02_000', 'sp2/426G1401_03_000']
+    processed_dir = '/data1/w0457094/data/processed_stylegestures/speakinglistening'    
     
     files = []
     
@@ -203,8 +203,9 @@ if __name__ == "__main__":
         for file in f:
             if '.wav' in file:
                 ff=os.path.join(r, file)
+                speakerid = os.path.split(r)[-1]
                 basename = os.path.splitext(os.path.basename(ff))[0]
-                files.append(basename)
+                files.append(os.path.join(speakerid,basename))
 
     print(files)
     # motion_feat = 'joint_rot'
@@ -215,10 +216,12 @@ if __name__ == "__main__":
         os.makedirs(processed_dir)
         
     path = os.path.join(processed_dir, f'features_{fps}fps')
-    motion_path = '/data1/w0457094/data/udhopenpose3D/speakinglisteningsegments_upper_joint_imputed/sp1/'
+    motion_path = '/data1/w0457094/data/udhopenpose3D/speakinglisteningsegments_upper_joint_imputed/'
     speech_path = os.path.join(path, f'{speech_feat}')
-    style_path = '/data1/w0457094/data/udhstyle/speakinglisteningsegments/sp1/'
-    ds_path = '/data1/w0457094/data/udhaudio/16kHz/speakinglisteningsegmentsds_resampled/sp1'
+    style_path = '/data1/w0457094/data/udhstyle/speakinglisteningsegments/'
+    id_path = '/data1/w0457094/data/udhidentity/speakinglisteningsegments/'
+    ds_path = '/data1/w0457094/data/udhaudio/16kHz/speakinglisteningsegmentsds/'
+    # ds_path = '/data1/w0457094/data/udhaudio/16kHz/speakinglisteningsegments_w2v_z/'
     # hand_path = os.path.join(path, 'hand_pos')
     # vel_path = os.path.join(path, 'MG-V')
     # radius_path = os.path.join(path,'MG-R')
@@ -276,13 +279,16 @@ if __name__ == "__main__":
     slice_win_test = test_window_secs*fps
     val_test_split = 10*test_window_secs*fps # 10 
     
-    train_motion, train_ctrl, train_fnames,train_clipnos = import_and_slice(train_files, motion_path, speech_path, style_path, ds_path, slice_win_train, window_overlap, mirror=False)
-    val_motion, val_ctrl, val_fnames, val_clipnos = import_and_slice(held_out, motion_path, speech_path, style_path, ds_path, slice_win_train, window_overlap, mirror=False, start=0, end=val_test_split)
+    train_motion, train_ctrl, train_fnames,train_clipnos, n_speech_feats, n_style_feats, n_id_feats, n_ds_feats = import_and_slice(train_files, motion_path, speech_path, style_path, id_path, ds_path, slice_win_train, window_overlap, mirror=True)
+    val_motion, val_ctrl, val_fnames, val_clipnos,_,_,_,_ = import_and_slice(held_out, motion_path, speech_path, style_path, id_path, ds_path, slice_win_train, window_overlap, mirror=True, start=0, end=val_test_split)
 
     # the following sets are cut into longer clips without overlap. These are used for subjective evaluations during tuning (dev) and evaluation (test)
-    dev_motion, dev_ctrl, dev_fnames,dev_clipnos = import_and_slice(held_out, motion_path, speech_path, style_path, ds_path, slice_win_test, 0, mirror=False, start=0, end=val_test_split)
-    test_motion, test_ctrl, test_fnames,test_clipnos = import_and_slice(held_out, motion_path, speech_path, style_path, ds_path, slice_win_test, 0, mirror=False, start=val_test_split)
+    dev_motion, dev_ctrl, dev_fnames,dev_clipnos,_,_,_,_ = import_and_slice(held_out, motion_path, speech_path, style_path, id_path, ds_path, slice_win_test, 0, mirror=False, start=0, end=val_test_split)
+    test_motion, test_ctrl, test_fnames,test_clipnos,_,_,_,_ = import_and_slice(held_out, motion_path, speech_path, style_path, id_path, ds_path, slice_win_test, 0, mirror=False, start=val_test_split)
     
+
+    print(train_ctrl.shape, val_ctrl.shape, dev_ctrl.shape, test_ctrl.shape)
+    print(n_speech_feats, n_style_feats, n_id_feats, n_ds_feats)
     # # if style controlled, set the control values to 15%, 50% and 85% quantiles
     # if style_path is not None:
     #     dev_ctrl[0::3,:,-1].fill(np.quantile(train_ctrl[:,:,-1],0.15))
@@ -291,16 +297,26 @@ if __name__ == "__main__":
     #     test_ctrl[0::3,:,-1].fill(np.quantile(train_ctrl[:,:,-1],0.15))
     #     test_ctrl[1::3,:,-1].fill(np.quantile(train_ctrl[:,:,-1],0.5))
     #     test_ctrl[2::3,:,-1].fill(np.quantile(train_ctrl[:,:,-1],0.85))
+
+    # split control signal to write out seperate components
+    speech_idx = range(0,n_speech_feats)
+    style_idx = range(n_speech_feats, n_speech_feats+n_style_feats)
+    id_idx = range(n_speech_feats+n_style_feats, n_speech_feats+n_style_feats+n_id_feats)
+    ds_idx = range(n_speech_feats+n_style_feats+n_id_feats, n_speech_feats+n_style_feats+n_id_feats+n_ds_feats)
                     
     #import pdb;pdb.set_trace()
     np.savez(os.path.join(processed_dir,f'train_output_{fps}fps.npz'), clips = train_motion, fnames = train_fnames, clipnums = train_clipnos)
     np.savez(os.path.join(processed_dir,f'train_input_{fps}fps.npz'), clips = train_ctrl, fnames = train_fnames, clipnums = train_clipnos)
+    np.savez(os.path.join(processed_dir,f'train_input_ds_{fps}fps.npz'), clips = train_ctrl[:,:,ds_idx], fnames = train_fnames, clipnums = train_clipnos)
     np.savez(os.path.join(processed_dir,f'val_output_{fps}fps.npz'), clips = val_motion, fnames = val_fnames, clipnums = val_clipnos)
     np.savez(os.path.join(processed_dir,f'val_input_{fps}fps.npz'), clips = val_ctrl, fnames = val_fnames, clipnums = val_clipnos)
+    np.savez(os.path.join(processed_dir,f'val_input_ds_{fps}fps.npz'), clips = val_ctrl[:,:,ds_idx], fnames = val_fnames, clipnums = val_clipnos)
     np.savez(os.path.join(processed_dir,f'dev_output_{fps}fps.npz'), clips = dev_motion, fnames = dev_fnames, clipnums = dev_clipnos)
     np.savez(os.path.join(processed_dir,f'dev_input_{fps}fps.npz'), clips = dev_ctrl, fnames = dev_fnames, clipnums = dev_clipnos)
+    np.savez(os.path.join(processed_dir,f'dev_input_ds_{fps}fps.npz'), clips = dev_ctrl[:,:,ds_idx], fnames = dev_fnames, clipnums = dev_clipnos)
     np.savez(os.path.join(processed_dir,f'test_output_{fps}fps.npz'), clips = test_motion, fnames = test_fnames, clipnums = test_clipnos)
     np.savez(os.path.join(processed_dir,f'test_input_{fps}fps.npz'), clips = test_ctrl, fnames = test_fnames, clipnums = test_clipnos)
+    np.savez(os.path.join(processed_dir,f'test_input_ds_{fps}fps.npz'), clips = test_ctrl[:,:,ds_idx], fnames = test_fnames, clipnums = test_clipnos)
 
     # finally prepare data for visualisation, i.e. the dev and test data in wav and bvh format    
     dev_vispath = os.path.join(processed_dir, 'visualization_dev')
