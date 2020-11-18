@@ -73,9 +73,9 @@ class FlowStep(nn.Module):
         if flow_coupling == "additive":
             self.f = f(in_channels // 2, in_channels-in_channels // 2, hidden_channels, cond_channels, network_model, num_layers)
         elif flow_coupling == "affine":
-            print("affine: in_channels = " + str(in_channels))
+            # print("affine: in_channels = " + str(in_channels))
             self.f = f(in_channels // 2, 2*(in_channels-in_channels // 2), hidden_channels, cond_channels, network_model, num_layers)
-            print("Flowstep affine layer: " + str(in_channels))
+            # print("Flowstep affine layer: " + str(in_channels))
 
     def init_lstm_hidden(self):
         if self.network_model == "LSTM" or self.network_model == "GRU":
@@ -250,3 +250,109 @@ class Glow(nn.Module):
     def loss_generative(nll):
         # Generative loss
         return torch.mean(nll)
+
+
+class CFVAE(nn.Module):
+
+    def __init__(self, x_channels, cond_channels, hparams):
+        super().__init__()
+        self.encoder = modules.LSTM(x_channels, hparams.Autoencoder.hidden_channels, hparams.Autoencoder.hidden_channels, num_layers=1)
+        self.decoder = modules.LSTM(hparams.Autoencoder.hidden_channels, hparams.Autoencoder.hidden_channels, x_channels, num_layers=1)
+        
+        self.flow = FlowNet(x_channels=hparams.Autoencoder.hidden_channels,
+                            hidden_channels=hparams.Glow.hidden_channels,
+                            cond_channels=cond_channels,
+                            K=hparams.Glow.K,
+                            actnorm_scale=hparams.Glow.actnorm_scale,
+                            flow_permutation=hparams.Glow.flow_permutation,
+                            flow_coupling=hparams.Glow.flow_coupling,
+                            network_model=hparams.Glow.network_model,
+                            num_layers=hparams.Glow.num_layers,
+                            LU_decomposed=hparams.Glow.LU_decomposed)
+
+        self.hparams = hparams
+        
+        # register prior hidden
+        num_device = len(utils.get_proper_device(hparams.Device.glow, False))
+        assert hparams.Train.batch_size % num_device == 0
+        self.z_shape = [hparams.Train.batch_size // num_device, hparams.Autoencoder.hidden_channels, 1]
+
+    def init_lstm_hidden(self):
+        self.encoder.init_hidden()
+        self.flow.init_lstm_hidden()
+        self.decoder.init_hidden()
+
+    def forward(self, x=None, cond=None, z=None,
+                eps_std=None, reverse=False, train_flow=False):
+        if reverse:
+            return self.reverse_flow(z, cond, eps_std)
+        elif train_flow:
+            return self.normal_flow(x, cond)
+        else:
+            return self.autoencode(x)
+
+    def normal_flow(self, x, cond):
+    
+        n_timesteps = thops.timesteps(x)
+
+        logdet = torch.zeros_like(x[:, 0, 0])
+
+        with torch.no_grad():
+            # encoder
+            _, z = self.autoencode(x)
+            z = z.permute(0, 2, 1)
+
+        # flow
+        z, logdet = self.flow(z, cond, logdet=logdet, reverse=False)
+
+        # the log-likelihood of the latent variable z from normal distribution
+        logdet += modules.GaussianDiag.logp(z)
+        nll = (-logdet) / float(np.log(2.) * n_timesteps)
+
+        return nll
+
+    def autoencode(self, x):
+    
+        # encoder
+        x = x.permute(0, 2, 1)
+        z = self.encoder(x)
+        # z = torch.relu(z)
+        # decoder
+        y = self.decoder(z)
+        # y = torch.relu(y)
+        y = y.permute(0, 2, 1)
+    
+        return y, z
+
+    def reverse_flow(self, z, cond, eps_std):
+        with torch.no_grad():
+
+            z_shape = self.z_shape
+            if z is None:
+                z = modules.GaussianDiag.sample(z_shape, eps_std, device=cond.device)
+
+            z_enc = self.flow(z, cond, eps_std=eps_std, reverse=True)
+            x = self.decoder(z_enc.permute(0,2,1))
+            x = x.permute(0,2,1)
+        return x
+
+    def set_actnorm_init(self, inited=True):
+        for name, m in self.named_modules():
+            if (m.__class__.__name__.find("ActNorm") >= 0):
+                m.inited = inited
+
+    @staticmethod
+    def loss_generative(nll=None, y=None, x=None):
+        # Generative loss
+        # BCEloss plus negative log likelihood
+        if nll is not None:
+            return torch.mean(nll)
+        else:
+            criterion = nn.MSELoss()
+            return criterion(y,x)
+            
+
+        # # print((0.01*torch.mean(nll)), loss(y,x))
+        # return (0.01*torch.mean(nll)) + loss(y,x)
+        # # # return torch.mean(nll)
+        # # return loss(z,x)

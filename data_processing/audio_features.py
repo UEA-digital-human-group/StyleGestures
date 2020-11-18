@@ -22,7 +22,8 @@ def extract_melspec(audio_dir, files, destpath, fps):
         hop_len=int(fs/fps)
         
         n_fft=int(fs*0.13)
-        C = librosa.feature.melspectrogram(y=X, sr=fs, n_fft=2048, hop_length=hop_len, n_mels=27, fmin=0.0, fmax=8000)
+        # C = librosa.feature.melspectrogram(y=X, sr=fs, n_fft=2048, hop_length=hop_len, n_mels=27, fmin=0.0, fmax=8000)
+        C = librosa.feature.melspectrogram(y=X, sr=fs, n_fft=n_fft, hop_length=hop_len, n_mels=27, fmin=0.0, fmax=16000)
         C = np.log(C)
         print("fs: " + str(fs))
         print("hop_len: " + str(hop_len))

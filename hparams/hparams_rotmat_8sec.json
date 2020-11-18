@@ -1,7 +1,7 @@
 {
     "Dir": {
-      "data_root": "/data1/w0457094/data/processed_stylegestures/quatconversation",
-      "log_root": "/data1/w0457094/results/style_gestures/quatconversation"
+      "data_root": "/data1/w0457094/data/processed_stylegestures/speakinglistening",
+      "log_root": "/data1/w0457094/results/style_gestures/speakinglistening"
     },
     "Glow": {
       "hidden_channels": 800,
@@ -15,7 +15,7 @@
     },
     "Data": {
       "framerate": 25,
-      "seqlen": 10,
+      "seqlen": 6,
       "n_lookahead": 25,
       "dropout": 0.4
     },
@@ -44,7 +44,7 @@
       "data": "cuda:0"
     },
     "Train": {
-      "batch_size": 45,
+      "batch_size": 30,
       "num_batches": 160000,
       "num_epochs": 400,
       "max_grad_clip": 5,
@@ -54,11 +54,11 @@
       "num_plot_samples": 1,
       "scalar_log_gap": 50,
       "validation_log_gap": 500,
-      "plot_gap": 1500,
+      "plot_gap": 5000,
       "warm_start": ""
     },
     "Infer": {
-      "pre_trained": ""
+      "pre_trained": "/data1/w0457094/results/style_gestures/speakinglistening/log_20201029_2047/checkpoints/save_34k0.pkg"
     }
   }
   

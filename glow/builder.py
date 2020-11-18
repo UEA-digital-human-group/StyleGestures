@@ -4,7 +4,7 @@ import torch
 from collections import defaultdict
 from . import learning_rate_schedule
 from .config import JsonConfig
-from .models import Glow
+from .models import Glow, CFVAE
 from .utils import load, save, get_proper_device
 
 
@@ -100,6 +100,126 @@ def build(x_channels, cond_channels, hparams, is_training):
         "graph": graph,
         "optim": optim,
         "lrschedule": lrschedule,
+        "devices": devices,
+        "data_device": data_gpu if not use_cpu else "cpu",
+        "loaded_step": loaded_step
+    }
+
+def build_cfvae(x_channels, cond_channels, hparams, is_training):
+    if isinstance(hparams, str):
+        hparams = JsonConfig(hparams)
+    # get graph and criterions from build function
+    graph, aeoptim, flowoptim, lrschedule, criterion_dict = None, None, None, None, None  # init with None
+    cpu, devices = "cpu", None
+    get_loss = None
+    # 1. build graph and criterion_dict, (on cpu)
+    # build and append `device attr` to graph
+    graph = CFVAE(x_channels, cond_channels, hparams)
+            
+    graph.device = hparams.Device.glow
+    if graph is not None:
+        # get device
+        devices = get_proper_device(graph.device)
+        graph.device = devices
+        graph.to(cpu)
+    # 2. get optim (on cpu)
+    try:
+        if graph is not None and is_training:
+            ae_optim_name = hparams.AEOptim.name
+            flow_optim_name = hparams.FlowOptim.name
+            # params = list(graph.encoder.parameters()) + list(graph.decoder.parameters()) + list(graph.flow.parameters())
+            aeparams = list(graph.encoder.parameters()) + list(graph.decoder.parameters())
+            flowparams = graph.flow.parameters()
+            # optim = __build_optim_dict[optim_name](graph.parameters(), hparams.Optim.args.to_dict())
+            aeoptim = __build_optim_dict[ae_optim_name](aeparams, hparams.AEOptim.args.to_dict())
+            flowoptim = __build_optim_dict[flow_optim_name](flowparams, hparams.FlowOptim.args.to_dict())
+            print("[Builder]: Using AE optimizer `{}`, with args:{}".format(ae_optim_name, hparams.AEOptim.args))
+            print("[Builder]: Using Flow optimizer `{}`, with args:{}".format(flow_optim_name, hparams.FlowOptim.args))
+            # get lrschedule
+            ae_schedule_name = "default"
+            ae_schedule_args = {}
+            if "Schedule" in hparams.AEOptim:
+                ae_schedule_name = hparams.AEOptim.Schedule.name
+                ae_schedule_args = hparams.AEOptim.Schedule.args.to_dict()
+            if not ("init_lr" in ae_schedule_args):
+                ae_schedule_args["init_lr"] = hparams.AEOptim.args.lr
+            assert ae_schedule_args["init_lr"] == hparams.AEOptim.args.lr,\
+                "AEOptim lr {} != Schedule init_lr {}".format(hparams.AEOptim.args.lr, ae_schedule_args["init_lr"])
+            aelrschedule = {
+                "func": getattr(learning_rate_schedule, ae_schedule_name),
+                "args": ae_schedule_args
+            }
+            # get lrschedule
+            flow_schedule_name = "default"
+            flow_schedule_args = {}
+            if "Schedule" in hparams.FlowOptim:
+                flow_schedule_name = hparams.FlowOptim.Schedule.name
+                flow_schedule_args = hparams.FlowOptim.Schedule.args.to_dict()
+            if not ("init_lr" in flow_schedule_args):
+                flow_schedule_args["init_lr"] = hparams.FlowOptim.args.lr
+            assert flow_schedule_args["init_lr"] == hparams.FlowOptim.args.lr,\
+                "FlowOptim lr {} != Schedule init_lr {}".format(hparams.FlowOptim.args.lr, flow_schedule_args["init_lr"])
+            flowlrschedule = {
+                "func": getattr(learning_rate_schedule, flow_schedule_name),
+                "args": flow_schedule_args
+            }
+    except KeyError:
+        raise ValueError("[Builder]: Optimizer `{}` is not supported.".format(optim_name))
+    # 3. warm start and move to devices
+    if graph is not None:
+        # 1. warm start from pre-trained model (on cpu)
+        pre_trained = None
+        loaded_step = 0
+        if is_training:
+            if "warm_start" in hparams.Train and len(hparams.Train.warm_start) > 0:
+                pre_trained = hparams.Train.warm_start
+        else:
+            pre_trained = hparams.Infer.pre_trained
+        if pre_trained is not None:
+            loaded_step = load(os.path.basename(pre_trained),
+                        graph=graph, aeoptim=aeoptim, flowoptim=flowoptim, criterion_dict=None,
+                        pkg_dir=os.path.dirname(pre_trained),
+                        device=cpu)
+        # 2. move graph to device (to cpu or cuda)
+        use_cpu = any([isinstance(d, str) and d.find("cpu") >= 0 for d in devices])
+        if use_cpu:
+            graph = graph.cpu()
+            print("[Builder]: Use cpu to train.")
+        else:
+            if "data" in hparams.Device:
+                data_gpu = hparams.Device.data
+                if isinstance(data_gpu, str):
+                    data_gpu = int(data_gpu[5:])
+            else:
+                data_gpu = devices[0]
+            # move to first
+            graph = graph.cuda(device=devices[0])
+            if is_training and pre_trained is not None:
+                # note that it is possible necessary to move optim
+                if hasattr(aeoptim, "state"):
+                    def move_to(D, device):
+                        for k in D:
+                            if isinstance(D[k], dict) or isinstance(D[k], defaultdict):
+                                move_to(D[k], device)
+                            elif torch.is_tensor(D[k]):
+                                D[k] = D[k].cuda(device)
+                    move_to(aeoptim.state, devices[0])
+                if hasattr(flowoptim, "state"):
+                    def move_to(D, device):
+                        for k in D:
+                            if isinstance(D[k], dict) or isinstance(D[k], defaultdict):
+                                move_to(D[k], device)
+                            elif torch.is_tensor(D[k]):
+                                D[k] = D[k].cuda(device)
+                    move_to(flowoptim.state, devices[0])
+            print("[Builder]: Use cuda {} to train, use {} to load data and get loss.".format(devices, data_gpu))
+
+    return {
+        "graph": graph,
+        "aeoptim": aeoptim,
+        "flowoptim": flowoptim,
+        "aelrschedule": aelrschedule,
+        "flowlrschedule": flowlrschedule,
         "devices": devices,
         "data_device": data_gpu if not use_cpu else "cpu",
         "loaded_step": loaded_step

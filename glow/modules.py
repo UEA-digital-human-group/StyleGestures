@@ -308,7 +308,8 @@ class LSTM(nn.Module):
         self.lstm = nn.LSTM(self.input_dim, self.hidden_dim, self.num_layers, batch_first=True)
 
         # Define the output layer
-        self.linear = LinearZeroInit(self.hidden_dim, output_dim)
+        # self.linear = LinearZeroInit(self.hidden_dim, output_dim)
+        self.linear = nn.Linear(self.hidden_dim, output_dim)
 
         # do_init
         self.do_init = True
@@ -330,8 +331,11 @@ class LSTM(nn.Module):
         
         #self.hidden = hidden[0].to(input.device), hidden[1].to(input.device)
         
+        # print(lstm_out[0], lstm_out.shape)
         # Final layer 
         y_pred = self.linear(lstm_out)
+        # print(y_pred[0])
+
         return y_pred
 
 # Here we define our model as a class

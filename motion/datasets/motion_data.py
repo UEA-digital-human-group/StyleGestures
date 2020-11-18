@@ -16,8 +16,9 @@ class MotionDataset(Dataset):
         n_lookahead: number of future control-values
         dropout: (0-1) dropout probability for previous poses
         """
-        self.seqlen = seqlen
-        self.dropout=dropout
+        print(seqlen, n_lookahead)
+        self.seqlen = seqlen # in seconds
+        self.dropout=dropout 
         seqlen_control = seqlen + n_lookahead + 1
         
         #For LSTM network

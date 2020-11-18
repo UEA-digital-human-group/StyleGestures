@@ -5,13 +5,15 @@ import joblib as jl
 from .motion_data_udh import MotionDatasetUDH, TestDataset
 from torch.utils.data import Dataset
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+import pickle
 
 from udhskeleton.render import plot_upper
-from udhskeleton.udhskeleton import UDHSkeleton
+from udhskeleton.udhskeleton import UDHSkeletonRigidHead, UDHSkeletonRHRotMat
 
 from os import mkdir
 from os.path import exists
-from torch import tensor, float32
+from torch import tensor, float32, norm, div, float64
 
 module_path = os.path.abspath(os.path.join('data_processing'))
 if module_path not in sys.path:
@@ -57,7 +59,7 @@ class UDH():
         # self.data_pipe = jl.load(os.path.join(data_root, 'data_pipe_'+str(hparams.Data.framerate)+'fps.sav'))
         
         #use this to generate test data for evaluation
-        #test_input = np.load(os.path.join(data_root, 'test_input_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
+        # test_input = np.load(os.path.join(data_root, 'test_input_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
                        
         # make sure the test data is at least one batch size
         self.n_test = test_input.shape[0]
@@ -68,6 +70,7 @@ class UDH():
         # Standardize
         train_input, input_scaler = fit_and_standardize(train_input)
         train_output, output_scaler = fit_and_standardize(train_output)
+        print('scalers:', input_scaler, output_scaler)
         val_input = standardize(val_input, input_scaler)
         val_output = standardize(val_output, output_scaler)
         test_input = standardize(test_input, input_scaler)
@@ -77,7 +80,7 @@ class UDH():
         self.train_dataset = MotionDatasetUDH(train_input, train_output, hparams.Data.seqlen, hparams.Data.n_lookahead, hparams.Data.dropout)    
         self.validation_dataset = MotionDatasetUDH(val_input, val_output, hparams.Data.seqlen, hparams.Data.n_lookahead, hparams.Data.dropout)    
         self.test_dataset = TestDataset(test_input, test_output)
-
+        print('len(self.test_dataset)', len(self.test_dataset))
         print('len(self.validation_dataset)', len(self.validation_dataset))
         
         
@@ -86,13 +89,14 @@ class UDH():
         self.fps = hparams.Data.framerate
 
     def save_animation(self, control_data, motion_data, filename):
-        batch_joints = inv_standardize(motion_data[:(self.n_test),:,:], self.scaler)
+        batch_joints = inv_standardize(motion_data[:self.n_test,:,:], self.scaler)
         np.savez(filename + ".npz", clips=batch_joints)  
 
         if exists(filename) is not True:
             mkdir(filename)
 
-        skeleton = UDHSkeleton()
+        print(filename)
+        skeleton = UDHSkeletonRigidHead()
         for i in range(len(batch_joints)):
             if exists('{:s}/{:02d}'.format(filename, i)) is not True:
                 mkdir('{:s}/{:02d}'.format(filename, i))
@@ -122,6 +126,77 @@ class UDH():
     def get_validation_dataset(self):
         return self.validation_dataset
         
+
+class UDHPCA(UDH):
+
+    def __init__(self, hparams):
+        data_root = hparams.Dir.data_root
+
+        #load data
+        train_input = np.load(os.path.join(data_root, 'train_input_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
+        train_output = np.load(os.path.join(data_root, 'train_output_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
+        val_input = np.load(os.path.join(data_root, 'val_input_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
+        val_output = np.load(os.path.join(data_root, 'val_output_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
+
+        #use this to generate visualizations for network tuning. It contains the same data as val_input, but sliced into longer 20-sec exerpts
+        test_input = np.load(os.path.join(data_root, 'dev_input_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
+        
+        #load pipeline for convertion from motion features to BVH.
+        # self.data_pipe = jl.load(os.path.join(data_root, 'data_pipe_'+str(hparams.Data.framerate)+'fps.sav'))
+        
+        #use this to generate test data for evaluation
+        # test_input = np.load(os.path.join(data_root, 'test_input_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
+                       
+        # make sure the test data is at least one batch size
+        self.n_test = test_input.shape[0]
+
+        n_tiles = 1+hparams.Train.batch_size//self.n_test
+        test_input = np.tile(test_input.copy(), (n_tiles,1,1))
+
+        # Standardize
+        train_input, input_scaler = fit_and_standardize(train_input)
+        train_output, output_scaler = fit_and_standardize(train_output)
+        val_input = standardize(val_input, input_scaler)
+        val_output = standardize(val_output, output_scaler)
+        test_input = standardize(test_input, input_scaler)
+        test_output = np.zeros((test_input.shape[0], test_input.shape[1], train_output.shape[2])).astype(np.float32)
+                        
+        # Create pytorch data sets
+        self.train_dataset = MotionDatasetUDH(train_input, train_output, hparams.Data.seqlen, hparams.Data.n_lookahead, hparams.Data.dropout)    
+        self.validation_dataset = MotionDatasetUDH(val_input, val_output, hparams.Data.seqlen, hparams.Data.n_lookahead, hparams.Data.dropout)    
+        self.test_dataset = TestDataset(test_input, test_output)
+
+        
+        # Store scaler and fps
+        self.scaler = output_scaler
+        self.fps = hparams.Data.framerate
+
+    def save_animation(self, control_data, motion_data, filename):
+        batch_joints = inv_standardize(motion_data[:self.n_test,:,:], self.scaler)
+        np.savez(filename + ".npz", clips=batch_joints)  
+
+        if exists(filename) is not True:
+            mkdir(filename)
+
+        # load pca model
+        pca_model_path='/data1/w0457094/data/udhopenpose3D/segments_upper_joints_pca.pkl'
+        with open(pca_model_path, 'rb') as f:
+            pca_joints = pickle.load(f)
+
+        print(filename)
+        skeleton = UDHSkeletonRigidHead()
+        for i in range(len(batch_joints)):
+            if exists('{:s}/{:02d}'.format(filename, i)) is not True:
+                mkdir('{:s}/{:02d}'.format(filename, i))
+           
+            for j in range(len(batch_joints[i])):
+                joints_j = tensor(pca_joints.inverse_transform(batch_joints[i][j]), dtype=float32).view((9,-1))
+                # normalise joints
+                lengths = norm(joints_j, dim=1)
+                joints_j = div(joints_j, lengths.view((-1,1))).flatten()
+                xyz = skeleton(joints_j).detach().reshape((-1,3))
+                plot_upper(xyz[:,0], xyz[:,1], xyz[:,2], fname='{:s}/{:02d}/{:04d}.jpg'.format(filename, i, j))
+
 class UDHDS(UDH):
 
     def __init__(self, hparams):
@@ -133,14 +208,14 @@ class UDHDS(UDH):
         val_input = np.load(os.path.join(data_root, 'val_input_ds_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
         val_output = np.load(os.path.join(data_root, 'val_output_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
 
-        #use this to generate visualizations for network tuning. It contains the same data as val_input, but sliced into longer 20-sec exerpts
+        # #use this to generate visualizations for network tuning. It contains the same data as val_input, but sliced into longer 20-sec exerpts
         test_input = np.load(os.path.join(data_root, 'dev_input_ds_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
         
         #load pipeline for convertion from motion features to BVH.
         # self.data_pipe = jl.load(os.path.join(data_root, 'data_pipe_'+str(hparams.Data.framerate)+'fps.sav'))
         
         #use this to generate test data for evaluation
-        #test_input = np.load(os.path.join(data_root, 'test_input_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
+        # test_input = np.load(os.path.join(data_root, 'test_input_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
                        
         # make sure the test data is at least one batch size
         self.n_test = test_input.shape[0]
@@ -162,6 +237,7 @@ class UDHDS(UDH):
         self.validation_dataset = MotionDatasetUDH(val_input, val_output, hparams.Data.seqlen, hparams.Data.n_lookahead, hparams.Data.dropout)    
         self.test_dataset = TestDataset(test_input, test_output)
 
+        print('len(self.test_dataset)', len(self.test_dataset))
         print('len(self.validation_dataset)', len(self.validation_dataset))
         
         
