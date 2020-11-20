@@ -92,6 +92,40 @@ def save(global_step, graph, optim, criterion_dict=None, pkg_dir="", is_best=Fal
                 os.remove(path)
             history.pop(0)
 
+def savecfvae(global_step, graph, aeoptim, flowoptim, criterion_dict=None, pkg_dir="", is_best=False, max_checkpoints=None):
+    if aeoptim is None:
+        raise ValueError("cannot save without optimzier")
+    state = {
+        "global_step": global_step,
+        # DataParallel wrap model in attr `module`.
+        "graph": graph.module.state_dict() if hasattr(graph, "module") else graph.state_dict(),
+        "aeoptim": aeoptim.state_dict(),
+        "flowoptim": flowoptim.state_dict(),
+        "criterion": {}
+    }
+    if criterion_dict is not None:
+        for k in criterion_dict:
+            state["criterion"][k] = criterion_dict[k].state_dict()
+    save_path = os.path.join(pkg_dir, _file_at_step(global_step))
+    best_path = os.path.join(pkg_dir, _file_best())
+    torch.save(state, save_path)
+    if is_best:
+        copyfile(save_path, best_path)
+    if max_checkpoints is not None:
+        history = []
+        for file_name in os.listdir(pkg_dir):
+            if re.search("save_\d*k\d*\.pkg", file_name):
+                digits = file_name.replace("save_", "").replace(".pkg", "").split("k")
+                number = int(digits[0]) * 1000 + int(digits[1])
+                history.append(number)
+        history.sort()
+        while len(history) > max_checkpoints:
+            path = os.path.join(pkg_dir, _file_at_step(history[0]))
+            print("[Checkpoint]: remove {} to keep {} checkpoints".format(path, max_checkpoints))
+            if os.path.exists(path):
+                os.remove(path)
+            history.pop(0)
+
 
 def load(step_or_path, graph, optim=None, criterion_dict=None, pkg_dir="", device=None):
     step = step_or_path

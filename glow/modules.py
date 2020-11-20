@@ -296,6 +296,37 @@ class InvertibleConv1x1(nn.Module):
             return z, logdet
 
 # Here we define our model as a class
+class FC(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim=1, num_layers=2, dropout=0.0):
+        super(FC, self).__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.output_dim = output_dim
+        self.num_layers = num_layers
+
+        self.relu = nn.ReLU()
+        # Define the fully connected layers
+        self.fc1 = nn.Linear(self.input_dim, self.hidden_dim)
+        self.fc2 = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.fc3 = nn.Linear(self.hidden_dim, self.output_dim)
+        
+        # do_init
+        self.do_init = True
+
+    def init_hidden(self):
+        # This is what we'll initialise our hidden state as
+        self.do_init = True
+
+    def forward(self, input):
+        x = self.fc1(input)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = self.relu(x)
+        y_pred = self.fc3(x)
+
+        return y_pred
+
+# Here we define our model as a class
 class LSTM(nn.Module):
 
     def __init__(self, input_dim, hidden_dim, output_dim=1, num_layers=2, dropout=0.0):
@@ -308,8 +339,8 @@ class LSTM(nn.Module):
         self.lstm = nn.LSTM(self.input_dim, self.hidden_dim, self.num_layers, batch_first=True)
 
         # Define the output layer
-        # self.linear = LinearZeroInit(self.hidden_dim, output_dim)
-        self.linear = nn.Linear(self.hidden_dim, output_dim)
+        self.linear = LinearZeroInit(self.hidden_dim, output_dim)
+        # self.linear = nn.Linear(self.hidden_dim, output_dim)
 
         # do_init
         self.do_init = True
@@ -331,12 +362,29 @@ class LSTM(nn.Module):
         
         #self.hidden = hidden[0].to(input.device), hidden[1].to(input.device)
         
-        # print(lstm_out[0], lstm_out.shape)
         # Final layer 
         y_pred = self.linear(lstm_out)
-        # print(y_pred[0])
 
         return y_pred
+
+class AELSTM(LSTM):
+
+    def __init__(self, input_dim, hidden_dim, output_dim=1, num_layers=2, dropout=0.0):
+        super(LSTM, self).__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+
+        # Define the LSTM layer
+        self.lstm = nn.LSTM(self.input_dim, self.hidden_dim, self.num_layers, batch_first=True)
+
+        # Define the output layer
+        # self.linear = LinearZeroInit(self.hidden_dim, output_dim)
+        self.linear = nn.Linear(self.hidden_dim, output_dim)
+
+        # do_init
+        self.do_init = True
+
 
 # Here we define our model as a class
 class GRU(nn.Module):

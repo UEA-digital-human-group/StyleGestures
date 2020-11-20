@@ -46,6 +46,8 @@ class UDH():
     def __init__(self, hparams):
         data_root = hparams.Dir.data_root
 
+
+
         #load data
         train_input = np.load(os.path.join(data_root, 'train_input_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
         train_output = np.load(os.path.join(data_root, 'train_output_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
@@ -70,7 +72,6 @@ class UDH():
         # Standardize
         train_input, input_scaler = fit_and_standardize(train_input)
         train_output, output_scaler = fit_and_standardize(train_output)
-        print('scalers:', input_scaler, output_scaler)
         val_input = standardize(val_input, input_scaler)
         val_output = standardize(val_output, output_scaler)
         test_input = standardize(test_input, input_scaler)
@@ -95,15 +96,25 @@ class UDH():
         if exists(filename) is not True:
             mkdir(filename)
 
-        print(filename)
         skeleton = UDHSkeletonRigidHead()
         for i in range(len(batch_joints)):
             if exists('{:s}/{:02d}'.format(filename, i)) is not True:
                 mkdir('{:s}/{:02d}'.format(filename, i))
            
             for j in range(len(batch_joints[i])):
-                xyz = skeleton(tensor(batch_joints[i][j], dtype=float32)).detach().reshape((-1,3))
+                joints_j = tensor(batch_joints[i][j], dtype=float32).view((9,-1))
+                # normalise joints
+                lengths = norm(joints_j, dim=1)
+                joints_j = div(joints_j, lengths.view((-1,1))).flatten()
+                xyz = skeleton(joints_j).detach().reshape((-1,3))
                 plot_upper(xyz[:,0], xyz[:,1], xyz[:,2], fname='{:s}/{:02d}/{:04d}.jpg'.format(filename, i, j))
+
+                # joints_j = tensor(pca_joints.inverse_transform(batch_joints[i][j]), dtype=float32).view((9,-1))
+                # # normalise joints
+                # lengths = norm(joints_j, dim=1)
+                # joints_j = div(joints_j, lengths.view((-1,1))).flatten()
+                # xyz = skeleton(joints_j).detach().reshape((-1,3))
+                # plot_upper(xyz[:,0], xyz[:,1], xyz[:,2], fname='{:s}/{:02d}/{:04d}.jpg'.format(filename, i, j))
 
     #     self.write_bvh(anim_clips, filename)
         

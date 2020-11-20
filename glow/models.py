@@ -256,10 +256,10 @@ class CFVAE(nn.Module):
 
     def __init__(self, x_channels, cond_channels, hparams):
         super().__init__()
-        self.encoder = modules.LSTM(x_channels, hparams.Autoencoder.hidden_channels, hparams.Autoencoder.hidden_channels, num_layers=1)
-        self.decoder = modules.LSTM(hparams.Autoencoder.hidden_channels, hparams.Autoencoder.hidden_channels, x_channels, num_layers=1)
+        self.encoder = modules.FC(x_channels, hparams.Autoencoder.hidden_channels, hparams.Autoencoder.hidden_channels//3, num_layers=1)
+        self.decoder = modules.FC(hparams.Autoencoder.hidden_channels//3, hparams.Autoencoder.hidden_channels, x_channels, num_layers=1)
         
-        self.flow = FlowNet(x_channels=hparams.Autoencoder.hidden_channels,
+        self.flow = FlowNet(x_channels=hparams.Autoencoder.hidden_channels//3,
                             hidden_channels=hparams.Glow.hidden_channels,
                             cond_channels=cond_channels,
                             K=hparams.Glow.K,
@@ -275,7 +275,7 @@ class CFVAE(nn.Module):
         # register prior hidden
         num_device = len(utils.get_proper_device(hparams.Device.glow, False))
         assert hparams.Train.batch_size % num_device == 0
-        self.z_shape = [hparams.Train.batch_size // num_device, hparams.Autoencoder.hidden_channels, 1]
+        self.z_shape = [hparams.Train.batch_size // num_device, hparams.Autoencoder.hidden_channels//3, 1]
 
     def init_lstm_hidden(self):
         self.encoder.init_hidden()
@@ -305,7 +305,7 @@ class CFVAE(nn.Module):
         # flow
         z, logdet = self.flow(z, cond, logdet=logdet, reverse=False)
 
-        # the log-likelihood of the latent variable z from normal distribution
+        # the log-likelihood that the latent variable z comes from a normal distribution
         logdet += modules.GaussianDiag.logp(z)
         nll = (-logdet) / float(np.log(2.) * n_timesteps)
 
@@ -327,9 +327,8 @@ class CFVAE(nn.Module):
     def reverse_flow(self, z, cond, eps_std):
         with torch.no_grad():
 
-            z_shape = self.z_shape
             if z is None:
-                z = modules.GaussianDiag.sample(z_shape, eps_std, device=cond.device)
+                z = modules.GaussianDiag.sample(self.z_shape, eps_std, device=cond.device)
 
             z_enc = self.flow(z, cond, eps_std=eps_std, reverse=True)
             x = self.decoder(z_enc.permute(0,2,1))

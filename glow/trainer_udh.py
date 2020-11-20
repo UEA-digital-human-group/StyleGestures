@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
-from .utils import save, load, plot_prob
+from .utils import save, load, plot_prob, savecfvae
 from .config import JsonConfig
 from .models import Glow, CFVAE
 from . import thops
@@ -373,6 +373,24 @@ class TrainerCFVAE(object):
         cond = torch.from_numpy(np.expand_dims(np.concatenate((jt_data,ctrl_data),axis=1), axis=-1))
         return cond.to(self.data_device)
     
+
+    def test_autoencoder(self):
+        train_batch = next(iter(self.data_loader))
+
+        for k in train_batch:
+            train_batch[k] = train_batch[k].to(self.data_device)
+        x = train_batch["x"]
+
+        with torch.no_grad():
+            y,z = self.graph(x=x)
+            y = y.permute(0,2,1).cpu().numpy()
+            z = z.permute(0,2,1).cpu().numpy()
+        
+        # make histogram of first 
+        
+        self.data.save_animation(None, y, '/home/w0457094/git/StyleGestures/aetest/test')              
+
+
     def generate_sample(self, eps_std=1.0, counter=0):
         print("generate_sample")
 
@@ -416,7 +434,7 @@ class TrainerCFVAE(object):
             
         
         # store the generated animations
-        self.data.save_animation(control_all[:,:(n_timesteps-n_lookahead),:], sampled_all, os.path.join(self.log_dir, f'sampled_{counter}_temp{str(int(eps_std*100))}_{str(self.global_step//1000)}k'))              
+        self.data.save_animation(control_all[:,:(n_timesteps-n_lookahead),:], sampled_all, os.path.join(self.log_dir, f'sampled_{counter}_temp{str(int(eps_std*100))}_{str(self.global_step)}k'))              
     
     def count_parameters(self, model):
          return sum(p.numel() for p in model.parameters() if p.requires_grad)    
@@ -427,8 +445,8 @@ class TrainerCFVAE(object):
 
         init_actnorm = True
         # train
-        adjusted_n_epochs = self.n_epoches // (self.n_ae_loops + self.n_flow_loops)
-        for epoch in range(adjusted_n_epochs):
+        # adjusted_n_epochs = self.n_epoches // (self.n_ae_loops + self.n_flow_loops)
+        for epoch in range(self.n_epoches):
             print("epoch", epoch, "global step", self.global_step)
             # at first time, re-init LSTM hidden
             if self.global_step == 0:
@@ -447,7 +465,7 @@ class TrainerCFVAE(object):
                     self.graph.decoder.train()
                     
                     # update learning rate
-                    lr = self.aelrschedule["func"](global_step=self.global_step,
+                    lr = self.aelrschedule["func"](global_step=(self.global_step+1)*(ae_epoch+1),
                                                 **self.aelrschedule["args"])
                                                                 
                     for param_group in self.aeoptim.param_groups:
@@ -471,11 +489,9 @@ class TrainerCFVAE(object):
                     y, _ = self.graph(x=x)
 
                     # loss
-                    ae_loss_generative = CFVAE.loss_generative(y=y,x=x)
-                    loss_classes = 0
+                    ae_loss = CFVAE.loss_generative(y=y,x=x)
                     if self.global_step % self.scalar_log_gaps == 0:
-                        self.writer.add_scalar("loss/ae_loss_generative", ae_loss_generative, self.global_step)
-                    ae_loss = ae_loss_generative
+                        self.writer.add_scalar("loss/ae_loss_generative", ae_loss, self.global_step)
 
                     # backward
                     self.graph.zero_grad()
@@ -493,8 +509,20 @@ class TrainerCFVAE(object):
                     self.aeoptim.step()
                 
                 print(
-                f'AE Loss: {ae_loss.item():.5f}'
+                f'{ae_epoch} AE Loss: {ae_loss.item():.5f} (lr: {lr})'
                 )
+
+            # print('testing autoencoder')
+            # self.test_autoencoder()
+            # checkpoints
+            if self.global_step % self.checkpoints_gap == 0:
+                savecfvae(global_step=self.global_step,
+                        graph=self.graph,
+                        aeoptim=self.aeoptim,
+                        flowoptim=self.flowoptim,
+                        pkg_dir=self.checkpoints_dir,
+                        is_best=True,
+                        max_checkpoints=self.max_checkpoints)
 
             for flow_epoch in range(self.n_flow_loops):
                 progress = tqdm(self.data_loader)
@@ -504,7 +532,7 @@ class TrainerCFVAE(object):
                     self.graph.flow.train()
                     
                     # update learning rate
-                    lr = self.flowlrschedule["func"](global_step=self.global_step,
+                    lr = self.flowlrschedule["func"](global_step=(self.global_step+1)*(flow_epoch+1),
                                                 **self.flowlrschedule["args"])
                                                                 
                     for param_group in self.flowoptim.param_groups:
@@ -541,11 +569,9 @@ class TrainerCFVAE(object):
                     nll = self.graph(x=x, cond=cond, train_flow=True)
 
                     # loss
-                    flow_loss_generative = CFVAE.loss_generative(nll=nll)
-                    loss_classes = 0
+                    flow_loss = CFVAE.loss_generative(nll=nll)
                     if self.global_step % self.scalar_log_gaps == 0:
-                        self.writer.add_scalar("loss/flow_loss_generative", flow_loss_generative, self.global_step)
-                    flow_loss = flow_loss_generative
+                        self.writer.add_scalar("loss/flow_loss_generative", flow_loss, self.global_step)
 
                     # backward
                     self.graph.zero_grad()
@@ -562,8 +588,22 @@ class TrainerCFVAE(object):
                     # step
                     self.flowoptim.step()
                 print(
-                f'Flow Loss: {flow_loss.item():.5f}'
+                f'{flow_epoch} Flow Loss: {flow_loss.item():.5f} (lr: {lr})'
                 )
+
+                # checkpoints
+                if flow_epoch % self.checkpoints_gap == 0:
+                    savecfvae(global_step=self.global_step,
+                            graph=self.graph,
+                            aeoptim=self.aeoptim,
+                            flowoptim=self.flowoptim,
+                            pkg_dir=self.checkpoints_dir,
+                            is_best=True,
+                            max_checkpoints=self.max_checkpoints)
+                            
+                # generate samples and save
+                if flow_epoch % self.plot_gaps == 0: 
+                    self.generate_sample(eps_std=1.0)
 
             # validation
             if self.global_step % self.validation_log_gaps == 0:
@@ -586,7 +626,7 @@ class TrainerCFVAE(object):
                         else:
                             self.graph.init_lstm_hidden()
                             
-                        y_val = self.graph(x=val_batch["x"], cond=val_batch["cond"])
+                        y_val,_ = self.graph(x=val_batch["x"], cond=val_batch["cond"])
                         nll_val = self.graph(x=val_batch["x"], cond=val_batch["cond"], train_flow=True)
                         
                         # loss
@@ -605,8 +645,8 @@ class TrainerCFVAE(object):
             )
                             
             # checkpoints
-            if self.global_step % self.checkpoints_gap == 0 and self.global_step > 0:
-                save(global_step=self.global_step,
+            if self.global_step % self.checkpoints_gap == 0:
+                savecfvae(global_step=self.global_step,
                         graph=self.graph,
                         aeoptim=self.aeoptim,
                         flowoptim=self.flowoptim,
@@ -615,12 +655,82 @@ class TrainerCFVAE(object):
                         max_checkpoints=self.max_checkpoints)
                         
             # generate samples and save
-            if self.global_step % self.plot_gaps == 0 and self.global_step > 0:   
+            if self.global_step % self.plot_gaps == 0: 
                 self.generate_sample(eps_std=1.0)
 
             # global step
             self.global_step += 1
 
+
+        # # final flow optimisation
+        # for flow_epoch in range(100):
+        #     progress = tqdm(self.data_loader)
+        #     for i_batch, batch in enumerate(progress):
+
+        #         # set to training state
+        #         self.graph.flow.train()
+                
+        #         # update learning rate
+        #         lr = self.flowlrschedule["func"](global_step=self.global_step,
+        #                                     **self.flowlrschedule["args"])
+                                                            
+        #         for param_group in self.flowoptim.param_groups:
+        #             param_group['lr'] = lr
+        #         self.flowoptim.zero_grad()
+        #         if self.global_step % self.scalar_log_gaps == 0:
+        #             self.writer.add_scalar("lr/lr", lr, self.global_step)
+                    
+        #         # get batch data
+        #         for k in batch:
+        #             batch[k] = batch[k].to(self.data_device)
+        #         x = batch["x"]
+        #         cond = batch["cond"]
+
+        #         # init LSTM hidden
+        #         if hasattr(self.graph, "module"):
+        #             self.graph.module.init_lstm_hidden()
+        #         else:
+        #             self.graph.init_lstm_hidden()
+                
+        #         # forward phase
+        #         nll = self.graph(x=x, cond=cond, train_flow=True)
+
+        #         # loss
+        #         flow_loss_generative = CFVAE.loss_generative(nll=nll)
+        #         loss_classes = 0
+        #         if self.global_step % self.scalar_log_gaps == 0:
+        #             self.writer.add_scalar("loss/flow_loss_generative", flow_loss_generative, self.global_step)
+        #         flow_loss = flow_loss_generative
+
+        #         # backward
+        #         self.graph.zero_grad()
+        #         self.flowoptim.zero_grad()
+        #         flow_loss.backward()
+
+        #         # operate grad
+        #         if self.max_grad_clip is not None and self.max_grad_clip > 0:
+        #             torch.nn.utils.clip_grad_value_(self.graph.parameters(), self.max_grad_clip)
+        #         if self.max_grad_norm is not None and self.max_grad_norm > 0:
+        #             grad_norm = torch.nn.utils.clip_grad_norm_(self.graph.parameters(), self.max_grad_norm)
+        #             if self.global_step % self.scalar_log_gaps == 0:
+        #                 self.writer.add_scalar("grad_norm/grad_norm", grad_norm, self.global_step)
+        #         # step
+        #         self.flowoptim.step()
+        #     print(
+        #     f'Flow Loss (final optimisation): {flow_loss.item():.5f}'
+        #     )
+
+        # save final checkpoint
+        savecfvae(global_step=self.global_step,
+                graph=self.graph,
+                aeoptim=self.aeoptim,
+                flowoptim=self.flowoptim,
+                pkg_dir=self.checkpoints_dir,
+                is_best=True,
+                max_checkpoints=self.max_checkpoints)
+                
+        # generate samples and save
+        self.generate_sample(eps_std=1.0)
 
         self.writer.export_scalars_to_json(os.path.join(self.log_dir, "all_scalars.json"))
         self.writer.close()

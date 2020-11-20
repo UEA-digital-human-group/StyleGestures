@@ -1,11 +1,11 @@
 {
     "Dir": {
-      "data_root": "/data1/w0457094/data/processed_stylegestures/quat10s",
-      "log_root": "/data1/w0457094/results/cvfae/quat10s"
+      "data_root": "/data1/w0457094/data/processed_stylegestures/quat10snopca",
+      "log_root": "/data1/w0457094/results/cvfae/quat10snopca"
     },
     "Glow": {
-      "hidden_channels": 400,
-      "K": 12,
+      "hidden_channels": 600,
+      "K": 14,
       "actnorm_scale": 1.0,
       "flow_permutation": "invconv",
       "flow_coupling": "affine",
@@ -22,7 +22,7 @@
     "AEOptim": {
       "name": "adam",
       "args": {
-        "lr": 0.15,
+        "lr": 0.0015,
         "betas": [
           0.9,
           0.999
@@ -32,7 +32,7 @@
       "Schedule": {
         "name": "noam_learning_rate_decay",
         "args": {
-          "warmup_steps": 3000,
+          "warmup_steps": 10,
           "minimum": 0.00015
         }
       }
@@ -50,7 +50,7 @@
       "Schedule": {
         "name": "noam_learning_rate_decay",
         "args": {
-          "warmup_steps": 3000,
+          "warmup_steps": 10,
           "minimum": 0.00015
         }
       }
@@ -62,26 +62,26 @@
       "data": "cuda:0"
     },
     "Train": {
-      "batch_size": 60,
+      "batch_size": 40,
       "num_batches": 160000,
-      "num_epochs": 500,
+      "num_epochs": 1,
       "max_grad_clip": 5,
       "max_grad_norm": 100,
       "max_checkpoints": 3,
-      "checkpoints_gap": 1000,
+      "checkpoints_gap": 25,
       "num_plot_samples": 1,
       "scalar_log_gap": 50,
       "validation_log_gap": 1,
-      "plot_gap": 1,
+      "plot_gap": 25,
       "warm_start": "",
-      "num_ae_loops": 20,
-      "num_flow_loops": 20
+      "num_ae_loops": 120,
+      "num_flow_loops": 100
     },
     "Infer": {
       "pre_trained": ""
     },
     "Autoencoder":{
-      "hidden_channels": 50
+      "hidden_channels": 75
     }
   }
   
