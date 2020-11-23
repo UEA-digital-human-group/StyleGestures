@@ -355,3 +355,120 @@ class CFVAE(nn.Module):
         # return (0.01*torch.mean(nll)) + loss(y,x)
         # # # return torch.mean(nll)
         # # return loss(z,x)
+
+
+class CFVAEJointTraining(nn.Module):
+
+    def __init__(self, x_channels, cond_channels, hparams):
+        super().__init__()
+        self.encoder = modules.FC(x_channels, hparams.Autoencoder.hidden_channels, hparams.Autoencoder.hidden_channels//3, num_layers=1)
+        self.decoder = modules.FC(hparams.Autoencoder.hidden_channels//3, hparams.Autoencoder.hidden_channels, x_channels, num_layers=1)
+        
+        self.flow = FlowNet(x_channels=hparams.Autoencoder.hidden_channels//3,
+                            hidden_channels=hparams.Glow.hidden_channels,
+                            cond_channels=cond_channels,
+                            K=hparams.Glow.K,
+                            actnorm_scale=hparams.Glow.actnorm_scale,
+                            flow_permutation=hparams.Glow.flow_permutation,
+                            flow_coupling=hparams.Glow.flow_coupling,
+                            network_model=hparams.Glow.network_model,
+                            num_layers=hparams.Glow.num_layers,
+                            LU_decomposed=hparams.Glow.LU_decomposed)
+
+        self.hparams = hparams
+        
+        # register prior hidden
+        num_device = len(utils.get_proper_device(hparams.Device.glow, False))
+        assert hparams.Train.batch_size % num_device == 0
+        self.z_shape = [hparams.Train.batch_size // num_device, hparams.Autoencoder.hidden_channels//3, 1]
+
+    def init_lstm_hidden(self):
+        self.encoder.init_hidden()
+        self.flow.init_lstm_hidden()
+        self.decoder.init_hidden()
+
+    def forward(self, x=None, cond=None, z=None,
+                eps_std=None, reverse=False):
+        if reverse:
+            return self.reverse_flow(z, cond, eps_std)
+        else:
+            return self.normal_flow(x, cond, eps_std)
+
+
+    def normal_flow(self, x, cond, eps_std):
+    
+        n_timesteps = thops.timesteps(x)
+
+        logdet = torch.zeros_like(x[:, 0, 0])
+
+        # encoder
+        x = x.permute(0, 2, 1)
+        z_enc = self.encoder(x)
+        z = z_enc.permute(0, 2, 1)
+
+        # flow
+        z, logdet = self.flow(z, cond, logdet=logdet, reverse=False)
+
+        # the log-likelihood that the latent variable z comes from a normal distribution
+        logdet += modules.GaussianDiag.logp(z)
+        nll = (-logdet) / float(np.log(2.) * n_timesteps)
+
+        # sample flow
+        z_sample = modules.GaussianDiag.sample(z.shape, eps_std, device=cond.device)
+        z_sample_enc = self.flow(z_sample, cond, eps_std=eps_std, reverse=True)
+        z_sample_enc = z_sample_enc.permute(0,2,1)
+
+        # decoder
+        y = self.decoder(z_sample_enc)
+        y = y.permute(0, 2, 1)
+
+        return nll, y
+
+
+    def reverse_flow(self, z, cond, eps_std):
+        with torch.no_grad():
+
+            if z is None:
+                z = modules.GaussianDiag.sample(self.z_shape, eps_std, device=cond.device)
+
+            z_enc = self.flow(z, cond, eps_std=eps_std, reverse=True)
+            x = self.decoder(z_enc.permute(0,2,1))
+            x = x.permute(0,2,1)
+        return x
+
+    def set_actnorm_init(self, inited=True):
+        for name, m in self.named_modules():
+            if (m.__class__.__name__.find("ActNorm") >= 0):
+                m.inited = inited
+
+    def weighted_mse_loss(input, target):
+        weight = torch.sub(1.0,torch.tensor([0.509,0.509,0.509,0.509, 0.179,0.179,0.179,0.179, 0.289, 0.289, 0.289, 0.289, 0.292,0.292,0.292,0.292, 0.179,0.179,0.179,0.179, 0.289, 0.289, 0.289, 0.289, 0.292, 0.292, 0.292, 0.292, 0.285, 0.285, 0.285, 0.285, 0.2,0.2,0.2,0.2], device=input.device))
+
+        weight = weight[None,:,None].repeat(input.shape[0], 1, input.shape[2])
+        return torch.mean(weight * (input - target) ** 2)
+
+    def weighted_first_deriv_loss(input, target):
+        weight = torch.sub(1.0,torch.tensor([0.509,0.509,0.509,0.509, 0.179,0.179,0.179,0.179, 0.289, 0.289, 0.289, 0.289, 0.292,0.292,0.292,0.292, 0.179,0.179,0.179,0.179, 0.289, 0.289, 0.289, 0.289, 0.292, 0.292, 0.292, 0.292, 0.285, 0.285, 0.285, 0.285, 0.2,0.2,0.2,0.2], device=input.device))
+
+        deriv = input[:, :,:-1] - input[:,:,1:]
+        weight = weight[None,:,None].repeat(input.shape[0], 1, deriv.shape[2])
+
+        return torch.mean(weight * deriv ** 2)
+
+    @staticmethod
+    def loss_generative(nll=None, y=None, x=None):
+        # Generative loss
+        # criterion = nn.MSELoss()
+        criterion = CFVAEJointTraining.weighted_mse_loss
+        reconstructionloss = criterion(y,x)
+
+        # first derivative loss
+        derivcriterion = CFVAEJointTraining.weighted_first_deriv_loss
+        derivloss = derivcriterion(y,x)
+        
+        negloglikelihood = torch.mean(nll)
+
+        alpha = 0.0005
+
+        return (alpha*negloglikelihood) + reconstructionloss , alpha*negloglikelihood, reconstructionloss
+

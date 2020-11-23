@@ -9,8 +9,8 @@ import datetime
 
 from docopt import docopt
 from torch.utils.data import DataLoader, Dataset
-from glow.builder import build_cfvae
-from glow.trainer_udh import TrainerCFVAE
+from glow.builder import build_cfvae, build_cfvae_jointtraining
+from glow.trainer_udh import TrainerCFVAE, TrainerCFVAEJointTraining
 from glow.config import JsonConfig
 
 if __name__ == "__main__":
@@ -40,13 +40,14 @@ if __name__ == "__main__":
     # build graph
 
     if hparams.Infer.pre_trained == "":
-        built = build_cfvae(x_channels, cond_channels, hparams, True)
+        built = build_cfvae_jointtraining(x_channels, cond_channels, hparams, True)
     else:
-        built = build_cfvae(x_channels, cond_channels, hparams, False)
+        built = build_cfvae_jointtraining(x_channels, cond_channels, hparams, False)
     
         
     # build trainer
-    trainer = TrainerCFVAE(**built, data=data, log_dir=log_dir, hparams=hparams)
+    # trainer = TrainerCFVAE(**built, data=data, log_dir=log_dir, hparams=hparams)
+    trainer = TrainerCFVAEJointTraining(**built, data=data, log_dir=log_dir, hparams=hparams)
     if hparams.Infer.pre_trained == "":
 
         # train model

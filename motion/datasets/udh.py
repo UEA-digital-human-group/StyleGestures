@@ -41,6 +41,14 @@ def inv_standardize(data, scaler):
     return scaled        
                 
 
+def inv_standardize_torch(data, scaler):      
+    shape = data.shape
+
+    # print( data.shape, tensor(scaler.scale_[None,:,None]).repeat(shape[0],1,shape[-1]).shape, tensor(scaler.mean_[None,:,None]).repeat(shape[0],1,shape[-1]).shape )
+    scaled = data * tensor(scaler.scale_[None,:,None], device=data.device).repeat(shape[0],1,shape[-1]) + tensor(scaler.mean_[None,:,None], device=data.device).repeat(shape[0],1,shape[-1])
+    return scaled        
+                
+
 class UDH():
 
     def __init__(self, hparams):
@@ -89,6 +97,22 @@ class UDH():
         self.scaler = output_scaler
         self.fps = hparams.Data.framerate
 
+        self.skeleton = UDHSkeletonRigidHead()
+        for param in self.skeleton.parameters():
+            param.requires_grad = False
+
+
+    # def evaluate_joints(self, batch_joints):
+    #     batch_joints = inv_standardize_torch(batch_joints, self.scaler)
+    #     xyz = tensor()
+    #     for i in range(len(batch_joints)):
+    #         for j in range(len(batch_joints[i])):
+    #             joints_j = batch_joints[i][j].view((9,-1))
+    #             xyz_ij = self.skeleton(joints_j)
+    #             xyz[i,j,:] = xyz_ij
+    #     return 
+
+
     def save_animation(self, control_data, motion_data, filename):
         batch_joints = inv_standardize(motion_data[:self.n_test,:,:], self.scaler)
         np.savez(filename + ".npz", clips=batch_joints)  
@@ -96,7 +120,7 @@ class UDH():
         if exists(filename) is not True:
             mkdir(filename)
 
-        skeleton = UDHSkeletonRigidHead()
+        
         for i in range(len(batch_joints)):
             if exists('{:s}/{:02d}'.format(filename, i)) is not True:
                 mkdir('{:s}/{:02d}'.format(filename, i))
@@ -106,7 +130,7 @@ class UDH():
                 # normalise joints
                 lengths = norm(joints_j, dim=1)
                 joints_j = div(joints_j, lengths.view((-1,1))).flatten()
-                xyz = skeleton(joints_j).detach().reshape((-1,3))
+                xyz = self.skeleton(joints_j).detach().reshape((-1,3))
                 plot_upper(xyz[:,0], xyz[:,1], xyz[:,2], fname='{:s}/{:02d}/{:04d}.jpg'.format(filename, i, j))
 
                 # joints_j = tensor(pca_joints.inverse_transform(batch_joints[i][j]), dtype=float32).view((9,-1))
