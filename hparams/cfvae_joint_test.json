@@ -1,10 +1,11 @@
 {
     "Dir": {
       "data_root": "/data1/w0457094/data/processed_stylegestures/rotmat10s",
+      "test_data_root": "/data1/w0457094/data/processed_stylegestures/other_speech",
       "log_root": "/data1/w0457094/results/cvfae/rotmat10s"
     },
     "Glow": {
-      "hidden_channels": 500,
+      "hidden_channels": 400,
       "K": 8,
       "actnorm_scale": 1.0,
       "flow_permutation": "invconv",
@@ -44,7 +45,7 @@
       "data": "cuda:0"
     },
     "Train": {
-      "batch_size": 70,
+      "batch_size": 90,
       "num_batches": 160000,
       "num_epochs": 300,
       "max_grad_clip": 5,
@@ -58,7 +59,8 @@
       "warm_start": ""
     },
     "Infer": {
-      "pre_trained": ""
+      "pre_trained": "/data1/w0457094/results/cvfae/rotmat10s/log_20201125_1149/checkpoints/trained.pkg",
+      "identity": 0
     },
     "Autoencoder":{
       "hidden_channels": 60

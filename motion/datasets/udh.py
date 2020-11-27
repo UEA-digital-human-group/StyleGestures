@@ -96,8 +96,16 @@ class UDH():
         # Store scaler and fps
         self.scaler = output_scaler
         self.fps = hparams.Data.framerate
+        self.normalisejoints = False
 
-        self.skeleton = UDHSkeletonRigidHead()
+        if hparams.Skeleton.type == 'quat':
+            self.skeleton = UDHSkeletonRigidHead()
+            self.normalisejoints = True
+        elif hparams.Skeleton.type == 'rotmat':
+            self.skeleton = UDHSkeletonRHRotMat()
+        else:
+            raise ValueError('Invalid skeleton type: {:s}'.format(hparams.Skeleton.type))
+
         for param in self.skeleton.parameters():
             param.requires_grad = False
 
@@ -126,32 +134,16 @@ class UDH():
                 mkdir('{:s}/{:02d}'.format(filename, i))
            
             for j in range(len(batch_joints[i])):
-                joints_j = tensor(batch_joints[i][j], dtype=float32).view((9,-1))
-                # normalise joints
-                lengths = norm(joints_j, dim=1)
-                joints_j = div(joints_j, lengths.view((-1,1))).flatten()
-                xyz = self.skeleton(joints_j).detach().reshape((-1,3))
+                joints_j = tensor(batch_joints[i][j], dtype=float64)
+                if self.normalisejoints:
+                    # normalise joints
+                    joints_j = joints_j.view((9,-1))
+                    lengths = norm(joints_j, dim=1)
+                    joints_j = div(joints_j, lengths.view((-1,1))).flatten()
+
+                xyz = self.skeleton(joints_j.view((9,-1))).detach().reshape((-1,3))
                 plot_upper(xyz[:,0], xyz[:,1], xyz[:,2], fname='{:s}/{:02d}/{:04d}.jpg'.format(filename, i, j))
 
-                # joints_j = tensor(pca_joints.inverse_transform(batch_joints[i][j]), dtype=float32).view((9,-1))
-                # # normalise joints
-                # lengths = norm(joints_j, dim=1)
-                # joints_j = div(joints_j, lengths.view((-1,1))).flatten()
-                # xyz = skeleton(joints_j).detach().reshape((-1,3))
-                # plot_upper(xyz[:,0], xyz[:,1], xyz[:,2], fname='{:s}/{:02d}/{:04d}.jpg'.format(filename, i, j))
-
-    #     self.write_bvh(anim_clips, filename)
-        
-    # def write_bvh(self, anim_clips, filename):
-    #     print('inverse_transform...')
-    #     inv_data=self.data_pipe.inverse_transform(anim_clips)
-    #     writer = BVHWriter()
-    #     for i in range(0,anim_clips.shape[0]):
-    #         filename_ = f'{filename}_{str(i)}.bvh'
-    #         print('writing:' + filename_)
-    #         with open(filename_,'w') as f:
-    #             writer.write(inv_data[i], f, framerate=self.fps)
-        
     def get_train_dataset(self):
         return self.train_dataset
         
@@ -160,6 +152,88 @@ class UDH():
 
     def get_validation_dataset(self):
         return self.validation_dataset
+        
+class UDHTest():
+
+    def __init__(self, hparams):
+        data_root = hparams.Dir.data_root
+        test_data_root = hparams.Dir.test_data_root
+
+        #load train data to compute scaler
+        train_input = np.load(os.path.join(data_root, 'train_input_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
+        train_output = np.load(os.path.join(data_root, 'train_output_'+str(hparams.Data.framerate)+'fps.npz'))['clips'].astype(np.float32)
+
+        #use this to generate visualizations for network tuning. It contains the same data as val_input, but sliced into longer 20-sec exerpts
+        test_input = np.load(os.path.join(test_data_root, 'test_input_'+str(hparams.Data.framerate)+'fps_id'+str(hparams.Infer.identity)+'.npz'))['clips'].astype(np.float32)
+              
+        # make sure the test data is at least one batch size
+        self.n_test = test_input.shape[0]
+
+        n_tiles = 1+hparams.Train.batch_size//self.n_test
+        test_input = np.tile(test_input.copy(), (n_tiles,1,1))
+
+        # Standardize
+        train_input, input_scaler = fit_and_standardize(train_input)
+        train_output, output_scaler = fit_and_standardize(train_output)
+        test_input = standardize(test_input, input_scaler)
+        test_output = np.zeros((test_input.shape[0], test_input.shape[1], train_output.shape[2])).astype(np.float32)
+                        
+        # Create pytorch data sets
+        self.train_dataset = MotionDatasetUDH(train_input, train_output, hparams.Data.seqlen, hparams.Data.n_lookahead, hparams.Data.dropout)    
+        self.test_dataset = TestDataset(test_input, test_output)
+        print('len(self.test_dataset)', len(self.test_dataset))
+        
+        
+        # Store scaler and fps
+        self.scaler = output_scaler
+        self.fps = hparams.Data.framerate
+        self.normalisejoints = False
+
+        if hparams.Skeleton.type == 'quat':
+            self.skeleton = UDHSkeletonRigidHead()
+            self.normalisejoints = True
+        elif hparams.Skeleton.type == 'rotmat':
+            self.skeleton = UDHSkeletonRHRotMat()
+        else:
+            raise ValueError('Invalid skeleton type: {:s}'.format(hparams.Skeleton.type))
+
+        for param in self.skeleton.parameters():
+            param.requires_grad = False
+
+
+
+    def save_animation(self, control_data, motion_data, filename):
+        batch_joints = inv_standardize(motion_data[:self.n_test,:,:], self.scaler)
+        np.savez(filename + ".npz", clips=batch_joints)  
+
+        if exists(filename) is not True:
+            mkdir(filename)
+
+        
+        for i in range(len(batch_joints)):
+            if exists('{:s}/{:02d}'.format(filename, i)) is not True:
+                mkdir('{:s}/{:02d}'.format(filename, i))
+           
+            for j in range(len(batch_joints[i])):
+                joints_j = tensor(batch_joints[i][j], dtype=float64)
+                if self.normalisejoints:
+                    # normalise joints
+                    joints_j = joints_j.view((9,-1))
+                    lengths = norm(joints_j, dim=1)
+                    joints_j = div(joints_j, lengths.view((-1,1))).flatten()
+
+                xyz = self.skeleton(joints_j.view((9,-1))).detach().reshape((-1,3))
+                plot_upper(xyz[:,0], xyz[:,1], xyz[:,2], fname='{:s}/{:02d}/{:04d}.jpg'.format(filename, i, j))
+
+
+    def get_train_dataset(self):
+        return self.train_dataset
+        
+    def get_test_dataset(self):
+        return self.test_dataset
+
+    def get_validation_dataset(self):
+        return self.test_dataset
         
 
 class UDHPCA(UDH):

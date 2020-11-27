@@ -382,6 +382,11 @@ class CFVAEJointTraining(nn.Module):
         assert hparams.Train.batch_size % num_device == 0
         self.z_shape = [hparams.Train.batch_size // num_device, hparams.Autoencoder.hidden_channels//3, 1]
 
+        numel = int(x_channels/9)
+        self.joint_weight = torch.Tensor([0.509]*numel + [0.179]*numel + [0.289]*numel + [0.292]*numel + [0.179]*numel + [0.289]*numel + [0.292]*numel + [0.285]*numel + [0.2]*numel)
+        self.joint_weight = torch.sub(1.0,self.joint_weight)
+
+
     def init_lstm_hidden(self):
         self.encoder.init_hidden()
         self.flow.init_lstm_hidden()
@@ -441,34 +446,36 @@ class CFVAEJointTraining(nn.Module):
             if (m.__class__.__name__.find("ActNorm") >= 0):
                 m.inited = inited
 
-    def weighted_mse_loss(input, target):
-        weight = torch.sub(1.0,torch.tensor([0.509,0.509,0.509,0.509, 0.179,0.179,0.179,0.179, 0.289, 0.289, 0.289, 0.289, 0.292,0.292,0.292,0.292, 0.179,0.179,0.179,0.179, 0.289, 0.289, 0.289, 0.289, 0.292, 0.292, 0.292, 0.292, 0.285, 0.285, 0.285, 0.285, 0.2,0.2,0.2,0.2], device=input.device))
+    def weighted_mse_loss(self, input, target):
+        # numelperjoint = int(self.x_channels/9)
+        # weight = torch.sub(1.0,torch.tensor([0.509,0.509,0.509,0.509, 0.179,0.179,0.179,0.179, 0.289, 0.289, 0.289, 0.289, 0.292,0.292,0.292,0.292, 0.179,0.179,0.179,0.179, 0.289, 0.289, 0.289, 0.289, 0.292, 0.292, 0.292, 0.292, 0.285, 0.285, 0.285, 0.285, 0.2,0.2,0.2,0.2], device=input.device))
 
-        weight = weight[None,:,None].repeat(input.shape[0], 1, input.shape[2])
+        weight = self.joint_weight[None,:,None].repeat(input.shape[0], 1, input.shape[2]).to(input.device)
         return torch.mean(weight * (input - target) ** 2)
 
-    def weighted_first_deriv_loss(input, target):
-        weight = torch.sub(1.0,torch.tensor([0.509,0.509,0.509,0.509, 0.179,0.179,0.179,0.179, 0.289, 0.289, 0.289, 0.289, 0.292,0.292,0.292,0.292, 0.179,0.179,0.179,0.179, 0.289, 0.289, 0.289, 0.289, 0.292, 0.292, 0.292, 0.292, 0.285, 0.285, 0.285, 0.285, 0.2,0.2,0.2,0.2], device=input.device))
+    def weighted_first_deriv_loss(self,input, target):
+        # weight = torch.sub(1.0,torch.tensor([0.509]*numel + [0.179]*numel + [0.289]*numel + [0.292]*numel + [0.179]*numel + [0.289]*numel + [0.292]*numel + [0.285]*numel + [0.2]*numel, device=input.device))
 
         deriv = input[:, :,:-1] - input[:,:,1:]
-        weight = weight[None,:,None].repeat(input.shape[0], 1, deriv.shape[2])
+        weight = self.joint_weight[None,:,None].repeat(input.shape[0], 1, deriv.shape[2]).to(input.device)
 
         return torch.mean(weight * deriv ** 2)
 
-    @staticmethod
-    def loss_generative(nll=None, y=None, x=None):
+    # @staticmethod
+    def loss_generative(self,nll=None, y=None, x=None):
         # Generative loss
-        # criterion = nn.MSELoss()
-        criterion = CFVAEJointTraining.weighted_mse_loss
+        criterion = nn.MSELoss()
+        # criterion = self.weighted_mse_loss
         reconstructionloss = criterion(y,x)
 
-        # first derivative loss
-        derivcriterion = CFVAEJointTraining.weighted_first_deriv_loss
-        derivloss = derivcriterion(y,x)
+        # # first derivative loss
+        # criterion = nn.MSELoss()
+        # derivcriterion = self.weighted_first_deriv_loss
+        # derivloss = derivcriterion(y,x)
         
         negloglikelihood = torch.mean(nll)
 
         alpha = 0.0005
 
-        return (alpha*negloglikelihood) + reconstructionloss , alpha*negloglikelihood, reconstructionloss
+        return (alpha*negloglikelihood) + reconstructionloss, alpha*negloglikelihood, reconstructionloss
 

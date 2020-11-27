@@ -939,7 +939,7 @@ class TrainerCFVAEJointTraining(object):
 
                 # loss
                 # loss, nll_mean, recloss = CFVAEJointTraining.loss_generative(nll=nll,y=self.data.evaluate_joints(y),x=self.data.evaluate_joints(x))
-                loss, nll_mean, recloss = CFVAEJointTraining.loss_generative(nll=nll,y=y,x=x)
+                loss, nll_mean, recloss = self.graph.loss_generative(nll=nll,y=y,x=x)
 
                 if self.global_step % self.scalar_log_gaps == 0:
                     self.writer.add_scalar("loss/loss_generative", loss, self.global_step)
@@ -1002,7 +1002,7 @@ class TrainerCFVAEJointTraining(object):
                         
                         # loss
                         # loss_v, loss_v_nll, loss_v_rec = CFVAEJointTraining.loss_generative(nll=nll_val,y=self.data.evaluate_joints(y_val), x=self.data.evaluate_joints(val_batch["x"]))
-                        loss_v, loss_v_nll, loss_v_rec = CFVAEJointTraining.loss_generative(nll=nll_val,y=y_val, x=val_batch["x"])
+                        loss_v, loss_v_nll, loss_v_rec = self.graph.loss_generative(nll=nll_val,y=y_val, x=val_batch["x"])
 
                         mse_loss_val = mse_loss_val + loss_v_rec
                         nll_loss_val = nll_loss_val + loss_v_nll
