@@ -203,7 +203,8 @@ if __name__ == "__main__":
     # held_out = ['sp1/426G1404_03_000', 'sp1/426G1407_01_000', 'sp1/426G1408_02_000', 'sp2/426G1401_03_000']
     # held_out = ['sp1/426G1404_05_000', 'sp1/426G1405_02_000', 'sp1/426G1408_01_001']
     held_out = ['sp1/426G1404_05_000']
-    processed_dir = '/data1/w0457094/data/processed_stylegestures/quat10s'    
+    # processed_dir = '/data1/w0457094/data/processed_stylegestures/quat10snopca'    
+    processed_dir = '/data1/w0457094/data/processed_stylegestures/rotmat10s'    
     
     files = []
     
@@ -229,7 +230,7 @@ if __name__ == "__main__":
         os.makedirs(processed_dir)
         
     path = os.path.join(processed_dir, f'features_{fps}fps')
-    motion_path = '/data1/w0457094/data/udhopenpose3D/segments_upper_joints_pca/'
+    motion_path = '/data1/w0457094/data/udhopenpose3D/segments_upper_joints_imputedR/'
     speech_path = os.path.join(path, f'{speech_feat}')
     style_path = '/data1/w0457094/data/speechcontent/'
     id_path = '/data1/w0457094/data/udhidentity/'
